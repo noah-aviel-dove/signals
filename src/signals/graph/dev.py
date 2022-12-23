@@ -11,9 +11,10 @@ import sounddevice as sd
 
 from signals.graph import (
     BlockLoc,
+    NodeType,
     Shape,
 )
-from signals.graph.node import (
+from signals.graph import (
     Node,
     Request,
     slot,
@@ -62,6 +63,10 @@ class Device(Node, abc.ABC):
 class SinkDevice(Device):
     input = slot('input')
 
+    @property
+    def type(self) -> NodeType:
+        return NodeType.PLAYBACK
+
     @classmethod
     def list(cls) -> list[typing.Self]:
         return [dev for dev in super().list() if dev.info.max_output_channels > 0]
@@ -94,6 +99,10 @@ class SourceDevice(Device):
     def __init__(self, info: DeviceInfo):
         super().__init__(info)
         self.q = queue.Queue()
+
+    @property
+    def type(self) -> NodeType:
+        return NodeType.GENERATOR
 
     @classmethod
     def list(cls) -> list[typing.Self]:

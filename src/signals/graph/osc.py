@@ -2,19 +2,25 @@ import abc
 
 import numpy as np
 
-from signals.graph import Shape
-from signals.graph.node import (
+from signals.graph import (
     BlockCachingNode,
+    NodeType,
     PassThroughShape,
     Request,
+    Shape,
+    Vis,
     slot,
 )
 
 
-class Osc(BlockCachingNode, PassThroughShape, abc.ABC):
+class Osc(BlockCachingNode, PassThroughShape, Vis, abc.ABC):
     sclock = slot('sclock')
     hertz = slot('hertz')
     phase = slot('phase')
+
+    @property
+    def type(self) -> NodeType:
+        return NodeType.GENERATOR
 
     def _eval(self, request: Request) -> np.ndarray:
         t = self.forward_request(self.sclock, request)

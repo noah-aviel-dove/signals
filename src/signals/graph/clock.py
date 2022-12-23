@@ -2,7 +2,8 @@ import abc
 
 import numpy as np
 
-from signals.graph.node import (
+import signals
+from signals.graph import (
     BlockCachingNode,
     Request,
     slot,
@@ -17,6 +18,11 @@ class Clock(BlockCachingNode, abc.ABC):
 
 
 class TimeClock(Clock):
+
+    @property
+    def type(self) -> signals.graph.NodeType:
+        return signals.graph.NodeType.GENERATOR
+
     hertz = slot('hertz')
 
     def _eval(self, request: Request) -> np.ndarray:
