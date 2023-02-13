@@ -1,10 +1,10 @@
 import sys
+import faulthandler
 
-import signals.graph.dev
 import signals.ui.window
 
-
 if __name__ == '__main__':
+    faulthandler.enable()
     app = signals.App(sys.argv)
     window = signals.ui.window.MainWindow()
     window.show()

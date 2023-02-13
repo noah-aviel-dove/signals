@@ -1,9 +1,10 @@
 from PyQt5 import (
+    QtCore,
     QtWidgets,
 )
 
-import signals.ui.pane
 import signals.ui.theme
+import signals.ui.view
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -13,8 +14,8 @@ class MainWindow(QtWidgets.QMainWindow):
         signals.ui.set_name(self)
         self.setWindowTitle('signals : ' + signals.app().project.name)
 
-        self.setAutoFillBackground(True)
-        self.setStyleSheet(f'background-color: {signals.ui.theme.current().back.name()};')
+        scene = signals.ui.view.GraphEditor(self)
 
-        pane = signals.ui.pane.GraphView(self)
-        self.setCentralWidget(pane)
+        view = QtWidgets.QGraphicsView(scene)
+        view.setMouseTracking(True)
+        self.setCentralWidget(view)
