@@ -2,7 +2,7 @@ from PyQt5 import (
     QtWidgets,
 )
 
-from signals.ui.pane import GraphPane
+import signals.ui.pane
 import signals.ui.theme
 
 
@@ -16,5 +16,5 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setAutoFillBackground(True)
         self.setStyleSheet(f'background-color: {signals.ui.theme.current().back.name()};')
 
-        pane = GraphPane(self)
+        pane = signals.ui.pane.GraphView(self)
         self.setCentralWidget(pane)

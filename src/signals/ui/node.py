@@ -10,6 +10,7 @@ import numpy as np
 
 import signals.graph
 import signals.graph.files
+import signals.layout
 import signals.ui.theme
 
 
@@ -43,10 +44,14 @@ N = typing.TypeVar(name='N', bound=NodePart)
 class Node(QtWidgets.QWidget):
     spacing = 2
 
-    def __init__(self, node: signals.graph.Node, parent):
+    def __init__(self,
+                 gnode: signals.graph.Node,
+                 lnode: signals.layout.Node,
+                 parent):
         super().__init__(parent=parent)
         signals.ui.set_name(self)
-        self.gnode = node
+        self.gnode = gnode
+        self.lnode = lnode
 
         self._toggle: PowerToggle = self._create_part(PowerToggle)
         self._core: NodeCore = self._create_part(NodeCore)
@@ -77,19 +82,19 @@ class Node(QtWidgets.QWidget):
             core_layout.addWidget(self._create_part(BufferCacheControl))
 
         # FIXME: add events
-        if isinstance(node, signals.graph.Event):
+        if isinstance(gnode, signals.graph.Event):
             layout.addWidget(self._create_part(EventTrigger))
         layout.addLayout(core_layout)
         # FIXME: add visualisers
-        if isinstance(node, signals.graph.Vis):
+        if isinstance(gnode, signals.graph.Vis):
             layout.addWidget(self._create_part(Visualizer))
         # FIXME: add events
-        if isinstance(node, signals.graph.Event):
+        if isinstance(gnode, signals.graph.Event):
             layout.addWidget(self._create_part(EventCaster))
 
         self.setLayout(layout)
 
-    def connect(self, pane: 'signals.ui.pane.GraphPane') -> None:
+    def connect(self, pane: 'signals.ui.view.GraphView') -> None:
         self._core.add_sink.connect(pane.edges.start_placing_edge)
         self._toggle.power_toggled.connect(pane.on_power_changed)
         for slot in self._slots:
