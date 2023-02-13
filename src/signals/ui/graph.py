@@ -114,7 +114,7 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
 
         self.power_toggle = PowerToggle()
         self.node = Node(self)
-        self.slots = [Slot(slot=slot) for slot in signal.slots()]
+        self.slots = [Slot(slot=slot) for slot in signal.slot_names()]
         self.cables = []
 
         slot_layout = hlayout()

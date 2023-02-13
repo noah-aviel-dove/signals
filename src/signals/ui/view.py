@@ -75,7 +75,7 @@ class UserSpace(QtWidgets.QGraphicsWidget):
         output_vertex = self._layout_lookup[output_node]
 
         input_vertex.outputs.append(output_vertex)
-        slot_index = output_node.signal.slots().index(output_slot.slot)
+        slot_index = output_node.signal.slot_names().index(output_slot.slot)
         assert slot_index > 0
         output_vertex.inputs.insert(slot_index, input_vertex)
 
@@ -90,7 +90,7 @@ class UserSpace(QtWidgets.QGraphicsWidget):
         output_vertex = self._layout_lookup[output_node]
 
         input_vertex.outputs.remove(output_vertex)
-        slot_index = output_node.signal.slots().index(output_slot.slot)
+        slot_index = output_node.signal.slot_names.index(output_slot.slot)
         assert slot_index > 0
         # This caused a ValueError once when the input wasn't found.
         assert output_vertex.inputs.pop(slot_index) is input_vertex

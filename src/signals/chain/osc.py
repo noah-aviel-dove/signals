@@ -4,10 +4,9 @@ import numpy as np
 
 from signals.chain import (
     BlockCachingSignal,
-    SignalType,
     PassThroughShape,
     Request,
-    Shape,
+    SignalType,
     Vis,
     slot,
 )
@@ -23,11 +22,9 @@ class Osc(BlockCachingSignal, PassThroughShape, Vis, abc.ABC):
         return SignalType.GENERATOR
 
     def _eval(self, request: Request) -> np.ndarray:
-        t = self.forward_request(self.sclock, request)
-        # I don't want to deal with making these vary at sample rate
-        block = Shape(channels=self.channels, frames=1)
-        phase = self.forward_request(self.phase, request, block)
-        hertz = self.forward_request(self.hertz, request, block)
+        t = self.sclock.forward(request)
+        phase = self.phase.forward_at_block_rate(request)
+        hertz = self.hertz.forward_at_block_rate(request)
         return self._osc(phase + hertz * t)
 
     @abc.abstractmethod

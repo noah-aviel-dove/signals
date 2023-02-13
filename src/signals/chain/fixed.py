@@ -26,3 +26,10 @@ class Fixed(Signal):
 
     def _eval(self, request: Request) -> np.ndarray:
         return self.value
+
+    def get_state(self) -> dict:
+        assert self.value.ndim == 2, self.value
+        return dict(
+            super().get_state(),
+            value=list(map(list, self.value))
+        )

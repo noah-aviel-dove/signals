@@ -9,6 +9,7 @@ import numpy as np
 
 from signals.chain import (
     Event,
+    SigState,
     Signal,
     BlockCachingSignal,
     SignalType,
@@ -92,7 +93,7 @@ class SamplePlayer(SoundFileReader, BlockCachingSignal, Vis, Event):
 
     def __init__(self):
         super().__init__()
-        self._path = None
+        self.path = None
 
     @property
     def type(self) -> SignalType:
@@ -100,7 +101,7 @@ class SamplePlayer(SoundFileReader, BlockCachingSignal, Vis, Event):
 
     @property
     def _sample_path(self) -> pathlib.Path:
-        return self._path
+        return self.path
 
     @property
     def channels(self) -> int:
@@ -108,3 +109,9 @@ class SamplePlayer(SoundFileReader, BlockCachingSignal, Vis, Event):
 
     def _eval(self, request: Request) -> np.ndarray:
         return self._read(request)
+
+    def get_state(self) -> SigState:
+        return dict(
+            super().get_state(),
+            path=self.path
+        )

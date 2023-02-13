@@ -1,12 +1,20 @@
 import abc
 import collections
 import enum
-import functools
+import inspect
 import typing
 
 import attr
 import more_itertools
 import numpy as np
+
+
+class ChainLayerError(Exception):
+    pass
+
+
+def empty_response() -> np.ndarray:
+    return np.zeros(shape=(1, 1))
 
 
 class Shape(typing.NamedTuple):
@@ -49,10 +57,6 @@ class Shape(typing.NamedTuple):
     def of_array(cls, array: np.ndarray) -> typing.Self:
         return cls(*array.shape)
 
-    def grow(self, new_frames: int) -> typing.Self:
-        return Shape(frames=self.frames + new_frames,
-                     channels=self.channels)
-
 
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
 class BlockLoc:
@@ -60,23 +64,69 @@ class BlockLoc:
     shape: Shape
 
     @property
-    def stop(self) -> int:
+    def end_position(self) -> int:
         return self.position + self.shape[0]
+
+    def resize(self, new_frames: int) -> typing.Self:
+        if new_frames == self.shape.frames:
+            return self
+        else:
+            return BlockLoc(position=self.position,
+                            shape=Shape(frames=new_frames,
+                                        channels=self.shape.channels))
+
+
+SlotName = str
 
 
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
 class Request:
     requestor: 'Signal'
+    slot: SlotName
     loc: BlockLoc
-
-    def resize(self, new_frames: int) -> typing.Self:
-        return Request(requestor=self.requestor,
-                       loc=BlockLoc(position=self.loc.position,
-                                    shape=Shape(frames=new_frames, channels=self.loc.shape.channels)))
 
 
 class _Slot(property):
     pass
+
+
+class BoundSlot:
+
+    def __init__(self, parent: 'Signal', name: SlotName, sig: 'Signal' = None):
+        self.name = name
+        self.parent = parent
+        self.sig = sig
+
+    def __bool__(self):
+        return self.sig is not None
+
+    def _make_request(self, loc: BlockLoc) -> Request:
+        return Request(requestor=self.parent, slot=self.name, loc=loc)
+
+    def _do_request(self, request: Request) -> np.ndarray:
+        block = self.sig.respond(request)
+        assert block.shape <= request.loc.shape, (block.shape, request)
+        return block
+
+    def request(self, loc: BlockLoc) -> np.ndarray:
+        if self.sig is None:
+            return empty_response()
+        else:
+            return self._do_request(self._make_request(loc))
+
+    def forward(self, request: Request, new_frames: int = None) -> np.ndarray:
+        if self.sig is None:
+            return empty_response()
+        else:
+            loc = (
+                request.loc
+                if new_frames is None else
+                request.loc.resize(new_frames)
+            )
+            return self._do_request(self._make_request(loc))
+
+    def forward_at_block_rate(self, request: Request) -> np.ndarray:
+        return self.forward(request, 1)
 
 
 class _Control(property):
@@ -98,16 +148,21 @@ class RequestRate(enum.Enum):
     UNUSED_FRAME = enum.auto()
 
 
-SlotName = str
+# FIXME this should include arrays, I think
+SigStateValue = float | int | bool | str
+SigState = dict[str, SigStateValue]
 
 
 class Signal(abc.ABC):
 
     def __init__(self):
-        self._ipts: dict[SlotName, Signal] = {}
-        self._opts: set[Signal] = set()
-        self.enabled: bool = True
+        self._outputs: set[tuple[SlotName, Signal]] = set()
         self._last_reqest: typing.Optional[Request] = None
+        self.enabled: bool = True
+        self._slots = {
+            slot: BoundSlot(parent=self, name=slot)
+            for slot in self.slot_names()
+        }
 
     @property
     @abc.abstractmethod
@@ -128,7 +183,7 @@ class Signal(abc.ABC):
                 return RequestRate.FRAME
 
     @classmethod
-    def slots(cls) -> list[SlotName]:
+    def slot_names(cls) -> list[SlotName]:
         return [
             k
             for k in dir(cls)
@@ -144,12 +199,31 @@ class Signal(abc.ABC):
         ]
 
     @property
-    def inputs(self) -> typing.Iterable['Signal']:
-        return map(self._ipts.__getitem__, self.slots())
+    def inputs(self) -> typing.AbstractSet['Signal']:
+        return {
+            slot.value
+            for slot in self._slots
+        }
 
     @property
-    def outputs(self) -> typing.Iterable['Signal']:
-        return self._opts
+    def outputs(self) -> typing.AbstractSet['Signal']:
+        return {
+            sig
+            for slot, sig in self._outputs
+        }
+
+    @property
+    def inputs_by_slot(self) -> dict[SlotName, 'Signal']:
+        return {
+            slot.name: slot.sig
+            for slot in self._slots.values()
+            if slot
+        }
+
+    @property
+    def outputs_with_slots(self) -> typing.AbstractSet[tuple[SlotName, 'Signal']]:
+        # FIXME
+        return self._outputs
 
     def upstream(self) -> typing.Sequence['Signal']:
         return self._upstream(set())
@@ -164,39 +238,12 @@ class Signal(abc.ABC):
         result.append(self)
         return result
 
-    def request(self, input: 'Signal', loc: BlockLoc) -> np.ndarray:
-        block = input.respond(self._make_request(loc))
-        assert block.shape <= loc.shape, (block.shape, loc.shape)
-        return block
-
-    def forward_request(self,
-                        input: 'Signal',
-                        request: Request,
-                        new_shape: typing.Optional[Shape] = None
-                        ) -> np.ndarray:
-        loc = request.loc if new_shape is None else BlockLoc(position=request.loc.position,
-                                                             shape=new_shape)
-        return self.request(input, loc)
-
-    def forward_sample_request_to_block_request(self,
-                                                input: 'Signal',
-                                                request: Request
-                                                ) -> np.ndarray:
-        return self.forward_request(input,
-                                    request,
-                                    Shape(channels=request.loc.shape.channels,
-                                          frames=1))
-
-    @functools.lru_cache(maxsize=2)
-    def _make_request(self, loc: BlockLoc):
-        return Request(requestor=self, loc=loc)
-
     def respond(self, request: Request) -> np.ndarray:
         self._last_reqest = request
         return self._get_result(request)
 
     def destroy(self) -> None:
-        for slot in self.slots():
+        for slot in self._slots:
             delattr(self, slot)
 
     @abc.abstractmethod
@@ -211,24 +258,65 @@ class Signal(abc.ABC):
     def channels(self) -> int:
         raise NotImplementedError
 
+    @property
+    def cls_name(self) -> str:
+        type_ = type(self)
+        return f'{type_.__module__}.{type_.__qualname__}'
+
+    def to_json(self) -> tuple[str, dict]:
+        return self.cls_name, self.get_state()
+
+    def get_state(self) -> SigState:
+        return dict(
+            enabled=self.enabled
+        )
+
+    def set_state(self, state: SigState) -> None:
+        # FIXME need to validate values
+        ks = state.keys() - self.get_state().keys()
+        if ks:
+            raise KeyError(*ks)
+        for k, v in state.items():
+            setattr(self, k, v)
+
+    @classmethod
+    def create(cls, cls_qualname: str) -> 'Signal':
+        try:
+            module_qualname, cls_name = cls_qualname.rsplit('.', 1)
+        except ValueError:
+            raise ImportError('Signal name must include a "."')
+        module = __import__(module_qualname)
+        _, *submodules = module_qualname.split('.')
+        for attrib in submodules:
+            module = getattr(module, attrib)
+        try:
+            target_cls = getattr(module, cls_name)
+        except AttributeError as e:
+            raise ImportError(*e.args)
+        if isinstance(target_cls, type) and issubclass(target_cls, cls):
+            if inspect.isabstract(target_cls):
+                raise ImportError(f'{cls_qualname} is abstract')
+            else:
+                return target_cls()
+        else:
+            raise ImportError(f'{cls_qualname!r} is not a signal')
+
 
 def slot(name: SlotName) -> _Slot:
-    def fget(self: Signal) -> typing.Optional[Signal]:
-        return self._ipts.get(name)
+    def fget(self: Signal) -> BoundSlot:
+        return self._slots[name]
 
     def fdel(self: Signal) -> None:
-        old_inputs = self._ipts.pop(name)
-        old_inputs._opts.remove(self)
+        slot = fget(self)
+        slot.sig._outputs.remove((name, self))
+        slot.sig = None
 
     def fset(self: Signal, input: Signal) -> None:
-        try:
-            old_input = self._ipts[name]
-        except KeyError:
-            pass
-        else:
-            old_input._opts.remove(self)
-        self._ipts[name] = input
-        input._opts.add(self)
+        slot = fget(self)
+        if slot.sig is not None:
+            slot.sig._outputs.remove((name, self))
+        slot.sig = input
+        slot.sig._outputs.add((name, self))
 
     return _Slot(fget=fget, fset=fset, fdel=fdel)
 
@@ -251,9 +339,9 @@ class BlockCachingSignal(Signal, abc.ABC):
 
     def __init__(self):
         super().__init__()
-        self._block_cache = None
-        self._block_cache_position = None
-        self._block_cache_users = set()
+        self._block_cache: np.ndarray | None = None
+        self._block_cache_position: int | None = None
+        self._block_cache_users: set[tuple[SlotName, Signal]] | None = None
 
     def _read_block_cache(self, request: Request) -> np.ndarray:
         if (
@@ -266,15 +354,13 @@ class BlockCachingSignal(Signal, abc.ABC):
             raise NotCached
 
     def _write_block_cache(self, block: np.ndarray, request: Request) -> None:
-        outputs = list(self.outputs)
-        if len(outputs) > 1:
+        if len(self._outputs) > 1:
             self._block_cache = block
             self._block_cache_position = request.loc.position
-            self._block_cache_users = set(outputs)
-            self._block_cache_users.remove(request.requestor)
+            self._block_cache_users = self._outputs - {(request.slot, request.requestor)}
 
     def _use_block_cache(self, request: Request) -> None:
-        self._block_cache_users.remove(request.requestor)
+        self._block_cache_users.remove((request.slot, request.requestor))
         if not self._block_cache_users:
             self._block_cache = None
 

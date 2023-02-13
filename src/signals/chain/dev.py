@@ -59,6 +59,9 @@ class Device(Signal, abc.ABC):
     def destroy(self) -> None:
         self._stopper.set()
 
+    def get_state(self) -> dict:
+        raise NotImplementedError
+
 
 class SinkDevice(Device):
     input = slot('input')
@@ -79,7 +82,7 @@ class SinkDevice(Device):
             if status:
                 self.log(status)
             shape = Shape(channels=self.channels, frames=frames)
-            block = self.request(self.input, BlockLoc(position=position, shape=shape))
+            block = self.input.request(BlockLoc(position=position, shape=shape))
             outdata[:] = block
             position += frames
 

@@ -3,7 +3,9 @@ import json
 import pathlib
 import typing
 
-from PyQt5 import QtWidgets
+from PyQt5 import (
+    QtWidgets,
+)
 import attr
 
 import signals.ui.theme
@@ -78,6 +80,9 @@ class App(QtWidgets.QApplication):
     @classmethod
     def instance(cls) -> typing.Optional[typing.Self]:
         return super().instance()
+
+    def load(self, project: Project):
+        self.project = project
 
 
 def app() -> typing.Optional[App]:

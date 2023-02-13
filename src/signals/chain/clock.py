@@ -16,7 +16,6 @@ class Clock(BlockCachingSignal, abc.ABC):
     def channels(self) -> int:
         return 1
 
-    @property
     def type(self) -> SignalType:
         return SignalType.GENERATOR
 
@@ -26,8 +25,8 @@ class TimeClock(Clock):
     hertz = slot('hertz')
 
     def _eval(self, request: Request) -> np.ndarray:
-        hertz = self.forward_request(self.hertz, request)
-        return (np.arange(request.loc.position, request.loc.stop) / hertz).reshape(-1, 1)
+        hertz = self.hertz.forward(request)
+        return (np.arange(request.loc.position, request.loc.end_position) / hertz).reshape(-1, 1)
 
 
 class TempoClock(Clock):
@@ -35,6 +34,6 @@ class TempoClock(Clock):
     bpm = slot('bpm')
 
     def _eval(self, request: Request) -> np.ndarray:
-        t = self.forward_request(self.tclock, request)
-        bpm = self.forward_request(self.bpm, request)
+        t = self.tclock.forward(request)
+        bpm = self.bpm.forward(request)
         return t * bpm / 60
