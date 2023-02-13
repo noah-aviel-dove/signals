@@ -1,10 +1,10 @@
 import more_itertools
 import numpy as np
 
-import signals.graph.clock
-import signals.graph.dev
-import signals.graph.fixed
-import signals.graph.osc
+import signals.chain.clock
+import signals.chain.dev
+import signals.chain.fixed
+import signals.chain.osc
 
 
 def main():

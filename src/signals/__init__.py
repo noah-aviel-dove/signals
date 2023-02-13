@@ -7,6 +7,7 @@ from PyQt5 import QtWidgets
 import attr
 
 import signals.ui.theme
+import signals.chain
 
 
 class _Env:
@@ -56,6 +57,12 @@ class Project:
     @functools.cached_property
     def config(self) -> Config:
         return Config.load(self.path / 'config.json')
+
+    def load_graph(self) -> list[signals.chain.Signal]:
+        with open(self.path / 'graph.json', 'r') as f:
+            graph = json.load(f)
+        # FIXME messed this up while rewriting history
+        return signals.chain.Signal.load_chain(graph)
 
     @classmethod
     def default(cls) -> typing.Self:

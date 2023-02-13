@@ -1,24 +1,24 @@
 import numpy as np
 
-from signals.graph import (
-    NodeType,
+from signals.chain import (
+    SignalType,
     Shape,
 )
-from signals.graph import (
-    Node,
+from signals.chain import (
+    Signal,
     Request,
 )
 
 
-class Fixed(Node):
+class Fixed(Signal):
 
     def __init__(self):
         super().__init__()
         self.value = np.zeros((1, 1))
 
     @property
-    def type(self) -> NodeType:
-        return NodeType.VALUE
+    def type(self) -> SignalType:
+        return SignalType.VALUE
 
     @property
     def channels(self) -> int:

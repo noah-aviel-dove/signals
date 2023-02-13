@@ -9,13 +9,13 @@ import attr as attr
 import numpy as np
 import sounddevice as sd
 
-from signals.graph import (
+from signals.chain import (
     BlockLoc,
-    NodeType,
+    SignalType,
     Shape,
 )
-from signals.graph import (
-    Node,
+from signals.chain import (
+    Signal,
     Request,
     slot,
 )
@@ -35,7 +35,7 @@ class DeviceInfo:
     default_samplerate: float
 
 
-class Device(Node, abc.ABC):
+class Device(Signal, abc.ABC):
 
     def __init__(self, info: DeviceInfo):
         super().__init__()
@@ -64,8 +64,8 @@ class SinkDevice(Device):
     input = slot('input')
 
     @property
-    def type(self) -> NodeType:
-        return NodeType.PLAYBACK
+    def type(self) -> SignalType:
+        return SignalType.PLAYBACK
 
     @classmethod
     def list(cls) -> list[typing.Self]:
@@ -101,8 +101,8 @@ class SourceDevice(Device):
         self.q = queue.Queue()
 
     @property
-    def type(self) -> NodeType:
-        return NodeType.GENERATOR
+    def type(self) -> SignalType:
+        return SignalType.GENERATOR
 
     @classmethod
     def list(cls) -> list[typing.Self]:

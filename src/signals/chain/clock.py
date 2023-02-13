@@ -2,26 +2,26 @@ import abc
 
 import numpy as np
 
-import signals
-from signals.graph import (
-    BlockCachingNode,
+from signals.chain import (
+    BlockCachingSignal,
     Request,
+    SignalType,
     slot,
 )
 
 
-class Clock(BlockCachingNode, abc.ABC):
+class Clock(BlockCachingSignal, abc.ABC):
 
     @property
     def channels(self) -> int:
         return 1
 
+    @property
+    def type(self) -> SignalType:
+        return SignalType.GENERATOR
+
 
 class TimeClock(Clock):
-
-    @property
-    def type(self) -> signals.graph.NodeType:
-        return signals.graph.NodeType.GENERATOR
 
     hertz = slot('hertz')
 

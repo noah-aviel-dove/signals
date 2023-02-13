@@ -66,11 +66,11 @@ class BlockLoc:
 
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
 class Request:
-    sink: 'Node'
+    requestor: 'Signal'
     loc: BlockLoc
 
     def resize(self, new_frames: int) -> typing.Self:
-        return Request(sink=self.sink,
+        return Request(requestor=self.requestor,
                        loc=BlockLoc(position=self.loc.position,
                                     shape=Shape(frames=new_frames, channels=self.loc.shape.channels)))
 
@@ -83,7 +83,7 @@ class _Control(property):
     pass
 
 
-class NodeType(enum.Enum):
+class SignalType(enum.Enum):
     GENERATOR = enum.auto()
     OPERATOR = enum.auto()
     PLAYBACK = enum.auto()
@@ -101,17 +101,17 @@ class RequestRate(enum.Enum):
 SlotName = str
 
 
-class Node(abc.ABC):
+class Signal(abc.ABC):
 
     def __init__(self):
-        self._sources: dict[SlotName, Node] = {}
-        self._sinks: set[Node] = set()
+        self._ipts: dict[SlotName, Signal] = {}
+        self._opts: set[Signal] = set()
         self.enabled: bool = True
         self._last_reqest: typing.Optional[Request] = None
 
     @property
     @abc.abstractmethod
-    def type(self) -> NodeType:
+    def type(self) -> SignalType:
         raise NotImplementedError
 
     @property
@@ -144,52 +144,52 @@ class Node(abc.ABC):
         ]
 
     @property
-    def sources(self) -> typing.Iterable['Node']:
-        return map(self._sources.__getitem__, self.slots())
+    def inputs(self) -> typing.Iterable['Signal']:
+        return map(self._ipts.__getitem__, self.slots())
 
     @property
-    def sinks(self) -> typing.Iterable['Node']:
-        return self._sinks
+    def outputs(self) -> typing.Iterable['Signal']:
+        return self._opts
 
-    def upstream(self) -> typing.Sequence['Node']:
+    def upstream(self) -> typing.Sequence['Signal']:
         return self._upstream(set())
 
-    def _upstream(self, visited: set['Node']) -> collections.deque['Node']:
+    def _upstream(self, visited: set['Signal']) -> collections.deque['Signal']:
         result = collections.deque()
-        for source in self.sources:
-            if source not in visited:
-                result.extend(source._upstream(visited))
+        for input in self.inputs:
+            if input not in visited:
+                result.extend(input._upstream(visited))
                 visited.update(result)
         assert self not in visited, 'Cycle detected'
         result.append(self)
         return result
 
-    def request(self, source: 'Node', loc: BlockLoc) -> np.ndarray:
-        block = source.respond(self._make_request(loc))
+    def request(self, input: 'Signal', loc: BlockLoc) -> np.ndarray:
+        block = input.respond(self._make_request(loc))
         assert block.shape <= loc.shape, (block.shape, loc.shape)
         return block
 
     def forward_request(self,
-                        source: 'Node',
+                        input: 'Signal',
                         request: Request,
                         new_shape: typing.Optional[Shape] = None
                         ) -> np.ndarray:
         loc = request.loc if new_shape is None else BlockLoc(position=request.loc.position,
                                                              shape=new_shape)
-        return self.request(source, loc)
+        return self.request(input, loc)
 
     def forward_sample_request_to_block_request(self,
-                                                source: 'Node',
+                                                input: 'Signal',
                                                 request: Request
                                                 ) -> np.ndarray:
-        return self.forward_request(source,
+        return self.forward_request(input,
                                     request,
                                     Shape(channels=request.loc.shape.channels,
                                           frames=1))
 
     @functools.lru_cache(maxsize=2)
     def _make_request(self, loc: BlockLoc):
-        return Request(sink=self, loc=loc)
+        return Request(requestor=self, loc=loc)
 
     def respond(self, request: Request) -> np.ndarray:
         self._last_reqest = request
@@ -213,31 +213,31 @@ class Node(abc.ABC):
 
 
 def slot(name: SlotName) -> _Slot:
-    def fget(self: Node) -> typing.Optional[Node]:
-        return self._sources.get(name)
+    def fget(self: Signal) -> typing.Optional[Signal]:
+        return self._ipts.get(name)
 
-    def fdel(self: Node) -> None:
-        old_source = self._sources.pop(name)
-        old_source._sinks.remove(self)
+    def fdel(self: Signal) -> None:
+        old_inputs = self._ipts.pop(name)
+        old_inputs._opts.remove(self)
 
-    def fset(self: Node, source: Node) -> None:
+    def fset(self: Signal, input: Signal) -> None:
         try:
-            old_source = self._sources[name]
+            old_input = self._ipts[name]
         except KeyError:
             pass
         else:
-            old_source._sinks.remove(self)
-        self._sources[name] = source
-        source._sinks.add(self)
+            old_input._opts.remove(self)
+        self._ipts[name] = input
+        input._opts.add(self)
 
     return _Slot(fget=fget, fset=fset, fdel=fdel)
 
 
-class PassThroughShape(Node, abc.ABC):
+class PassThroughShape(Signal, abc.ABC):
 
     @property
     def channels(self) -> int:
-        input_shape = {source.channels for source in self.sources}
+        input_shape = {input.channels for input in self.inputs}
         if len(input_shape) > 1:
             input_shape.discard(1)
         return more_itertools.one(input_shape)
@@ -247,7 +247,7 @@ class NotCached(RuntimeError):
     pass
 
 
-class BlockCachingNode(Node, abc.ABC):
+class BlockCachingSignal(Signal, abc.ABC):
 
     def __init__(self):
         super().__init__()
@@ -266,15 +266,15 @@ class BlockCachingNode(Node, abc.ABC):
             raise NotCached
 
     def _write_block_cache(self, block: np.ndarray, request: Request) -> None:
-        sinks = list(self.sinks)
-        if len(sinks) > 1:
+        outputs = list(self.outputs)
+        if len(outputs) > 1:
             self._block_cache = block
             self._block_cache_position = request.loc.position
-            self._block_cache_users = set(sinks)
-            self._block_cache_users.remove(request.sink)
+            self._block_cache_users = set(outputs)
+            self._block_cache_users.remove(request.requestor)
 
     def _use_block_cache(self, request: Request) -> None:
-        self._block_cache_users.remove(request.sink)
+        self._block_cache_users.remove(request.requestor)
         if not self._block_cache_users:
             self._block_cache = None
 
@@ -289,9 +289,9 @@ class BlockCachingNode(Node, abc.ABC):
         return result
 
 
-class Event(Node, abc.ABC):
+class Event(Signal, abc.ABC):
     pass
 
 
-class Vis(Node, abc.ABC):
+class Vis(Signal, abc.ABC):
     pass

@@ -7,17 +7,17 @@ import soundfile as sf
 
 import numpy as np
 
-from signals.graph import (
+from signals.chain import (
     Event,
-    Node,
-    BlockCachingNode,
-    NodeType,
+    Signal,
+    BlockCachingSignal,
+    SignalType,
     Request,
     Vis,
 )
 
 
-class SoundFileBase(Node, abc.ABC):
+class SoundFileBase(Signal, abc.ABC):
 
     def __init__(self):
         super().__init__()
@@ -64,7 +64,7 @@ class SoundFileWriter(SoundFileBase, abc.ABC):
         self._buffer.write(block)
 
 
-class BufferCachingNode(SoundFileReader, SoundFileWriter, BlockCachingNode, abc.ABC):
+class BufferCachingSignal(SoundFileReader, SoundFileWriter, BlockCachingSignal, abc.ABC):
 
     def __init__(self):
         super().__init__()
@@ -88,15 +88,15 @@ class BufferCachingNode(SoundFileReader, SoundFileWriter, BlockCachingNode, abc.
         return result
 
 
-class SamplePlayer(SoundFileReader, BlockCachingNode, Vis, Event):
+class SamplePlayer(SoundFileReader, BlockCachingSignal, Vis, Event):
 
     def __init__(self):
         super().__init__()
         self._path = None
 
     @property
-    def type(self) -> NodeType:
-        return NodeType.GENERATOR
+    def type(self) -> SignalType:
+        return SignalType.GENERATOR
 
     @property
     def _sample_path(self) -> pathlib.Path:
