@@ -63,7 +63,7 @@ class Coordinates:
         """
         return f'{self.row}{self.col}'
 
-    _coord_re = re.compile(r'(\d+)([a-z]+)')
+    coord_re = re.compile(r'(\d+)([a-z]+)')
 
     @classmethod
     def parse(cls, s: str) -> typing.Self:
@@ -83,7 +83,7 @@ class Coordinates:
         >>> Coordinates.parse('1234aul')
         Coordinates(row=1234, col=1234)
         """
-        match = re.fullmatch(cls._coord_re, s)
+        match = re.fullmatch(cls.coord_re, s)
         if match:
             row, col = match.groups()
             return cls(row=int(row), col=CoordinateColumn(col))
@@ -123,7 +123,7 @@ class SigInfo:
 
     @functools.cached_property
     def slot_names(self) -> list[signals.chain.SlotName]:
-        return signals.chain.discovery.load_cls(self.cls_name).slot_names()
+        return signals.chain.discovery.load_signal(self.cls_name).slot_names()
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
@@ -237,7 +237,7 @@ class Map:
 
     def add(self, info: MappedSigInfo):
         try:
-            sig_cls = signals.chain.discovery.load_cls(info.cls_name)
+            sig_cls = signals.chain.discovery.load_signal(info.cls_name)
         except signals.chain.discovery.BadSignal as e:
             raise BadSignal(info.at, info.cls_name, e.args[0])
         else:
