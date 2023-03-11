@@ -11,9 +11,10 @@ import bijection
 from signals.chain import (
     SigStateValue,
     Signal,
-    SlotName,
     SignalName,
+    SlotName,
 )
+import signals.chain.dev
 import signals.chain.discovery
 
 CoordinateRow = int
@@ -117,18 +118,23 @@ class SigState(signals.chain.SigState):
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class SigInfo:
+class MappedSigInfo:
+    at: Coordinates
     cls_name: SignalName
     state: SigState
 
     @functools.cached_property
+    def _sig_cls(self) -> type[signals.chain.Signal]:
+        try:
+            return signals.chain.discovery.load_signal(self.cls_name)
+        except signals.chain.discovery.BadSignal as e:
+            raise BadSignal(self.at, self.cls_name, e.args[0])
+
     def slot_names(self) -> list[signals.chain.SlotName]:
-        return signals.chain.discovery.load_signal(self.cls_name).slot_names()
+        return self._sig_cls.slot_names()
 
-
-@attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class MappedSigInfo(SigInfo):
-    at: Coordinates
+    def create(self) -> signals.chain.Signal:
+        return self._sig_cls()
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
@@ -162,6 +168,75 @@ class LinkedSigInfo(MappedSigInfo):
         yield from self.links_out
 
 
+@attr.s(auto_attribs=True, kw_only=True, frozen=True)
+class MappedDevInfo(MappedSigInfo):
+    device: signals.chain.dev.DeviceInfo
+
+    _source_cls_name = 'signals.chain.dev.SourceDevice'
+    _sink_cls_name = 'signals.chain.dev.SinkDevice'
+
+    @classmethod
+    def for_source(cls,
+                   *,
+                   device: signals.chain.dev.DeviceInfo,
+                   at: Coordinates,
+                   state: SigState = None
+                   ) -> typing.Self:
+        return cls(cls_name=cls._source_cls_name,
+                   state=SigState() if state is None else state,
+                   device=device,
+                   at=at)
+
+    @classmethod
+    def for_sink(cls,
+                 *,
+                 device: signals.chain.dev.DeviceInfo,
+                 at: Coordinates,
+                 state: SigState = None
+                 ) -> typing.Self:
+        return cls(cls_name=cls._sink_cls_name,
+                   state=SigState() if state is None else state,
+                   device=device,
+                   at=at)
+
+    def create(self) -> signals.chain.Signal:
+        return self._sig_cls(self.device)
+
+
+@attr.s(auto_attribs=True, kw_only=True, frozen=True)
+class LinkedDevInfo(MappedDevInfo, LinkedSigInfo):
+
+    @classmethod
+    def for_linked_source(cls,
+                          *,
+                          device: signals.chain.dev.DeviceInfo,
+                          at: Coordinates,
+                          state: SigState = None,
+                          links_out: typing.Collection[ConnectionInfo]
+                          ) -> typing.Self:
+        return cls(cls_name=cls._source_cls_name,
+                   device=device,
+                   at=at,
+                   state=state,
+                   links_out=links_out,
+                   links_in=())
+
+    @classmethod
+    def for_linked_sink(cls,
+                        *,
+                        device: signals.chain.dev.DeviceInfo,
+                        at: Coordinates,
+                        state: SigState = None,
+                        links_in: typing.Collection[ConnectionInfo]
+                        ) -> typing.Self:
+        return cls(cls_name=cls._sink_cls_name,
+                   device=device,
+                   at=at,
+                   state=state,
+                   links_out=(),
+                   links_in=links_in)
+
+
 class MapLayerError(Exception):
 
     def __str__(self) -> str:
@@ -186,10 +261,17 @@ class NonEmpty(MapError):
         super().__init__(at, 'Coordinates are not empty')
 
 
-class BadConnection(MapError):
+class NotConnected(MapError):
 
     def __init__(self, slot: SlotInfo):
         super().__init__(slot.at, f'Slot {slot.slot!r} has no input.')
+
+
+class AlreadyConnected(MapError):
+
+    def __init__(self, connection: ConnectionInfo):
+        slot = connection.output
+        super().__init__(slot.at, f'Slot {slot.slot!r} already has input at {connection.input_at}')
 
 
 class BadSignal(MapError):
@@ -227,34 +309,41 @@ class Map:
     def __init__(self):
         self._map = bijection.Bijection[Coordinates, Signal]()
 
-    def get(self, at: Coordinates) -> LinkedSigInfo:
-        sig = self._find(at)
-        return LinkedSigInfo(at=at,
-                             cls_name=sig.cls_name,
-                             state=SigState(sig.get_state()),
-                             links_in=list(self._find_inputs(at, sig)),
-                             links_out=list(self._find_outputs(at, sig)))
+    def new(self) -> typing.Self:
+        return type(self)()
 
     def add(self, info: MappedSigInfo):
-        try:
-            sig_cls = signals.chain.discovery.load_signal(info.cls_name)
-        except signals.chain.discovery.BadSignal as e:
-            raise BadSignal(info.at, info.cls_name, e.args[0])
-        else:
-            sig = sig_cls()
-            self._set_state(info.at, sig, info.state)
-            if self._map.setdefault(info.at, sig) is not sig:
-                raise NonEmpty(info.at)
+        sig = info.create()
+        self._set_state(info.at, sig, info.state)
+        # This is a weird smell. Perhaps we could populate a complete state when
+        # the command is created?
+        info.state.update(sig.get_state())
+        if self._map.setdefault(info.at, sig) is not sig:
+            raise NonEmpty(info.at)
 
     def rm(self, at: Coordinates) -> LinkedSigInfo:
         sig = self._pop(at)
         inputs = list(self._find_inputs(at, sig))
         outputs = list(self._find_outputs(at, sig))
-        result = LinkedSigInfo(at=at,
-                               cls_name=sig.cls_name,
-                               state=SigState(sig.get_state()),
-                               links_in=inputs,
-                               links_out=outputs)
+        state = SigState(sig.get_state())
+        if isinstance(sig, signals.chain.dev.SourceDevice):
+            assert not inputs, inputs
+            result = LinkedDevInfo.for_linked_source(at=at,
+                                                     state=state,
+                                                     links_out=outputs,
+                                                     device=sig.info)
+        elif isinstance(sig, signals.chain.dev.SinkDevice):
+            assert not outputs, outputs
+            result = LinkedDevInfo.for_linked_sink(at=at,
+                                                   state=state,
+                                                   links_in=inputs,
+                                                   device=sig.info)
+        else:
+            result = LinkedSigInfo(at=at,
+                                   cls_name=sig.cls_name,
+                                   state=SigState(sig.get_state()),
+                                   links_in=inputs,
+                                   links_out=outputs)
         for connection in result.links:
             assert self.disconnect(connection.output) == connection.input_at, connection
         sig.destroy()
@@ -277,14 +366,17 @@ class Map:
         output_sig = self._find(info.output.at)
         old_input_slot = getattr(output_sig, info.output.slot)
         old_input_at = self._map.inv[old_input_slot.sig] if old_input_slot else None
-        try:
-            # FIXME this does not raise a keyerror if the slot name is invalid
-            # i think I need actual setters instead of using setattr
-            setattr(output_sig, info.output.slot, input_sig)
-        except KeyError:
-            raise BadSlot(info.output, output_sig)
+        if old_input_at == info.input_at:
+            raise AlreadyConnected(info)
         else:
-            return old_input_at
+            try:
+                # FIXME this does not raise a KeyError if the slot name is invalid
+                #  i think I need actual setters instead of using setattr
+                setattr(output_sig, info.output.slot, input_sig)
+            except KeyError:
+                raise BadSlot(info.output, output_sig)
+            else:
+                return old_input_at
 
     def disconnect(self, slot_info: SlotInfo) -> Coordinates:
         output = self._find(slot_info.at)
@@ -294,7 +386,7 @@ class Map:
             raise BadSlot(slot_info, output)
         else:
             if input is None:
-                raise BadConnection(slot_info)
+                raise NotConnected(slot_info)
             else:
                 # this may fail if the input is outside the map
                 # e.g. if we only map a subset of the graph
@@ -304,15 +396,30 @@ class Map:
 
     def iter_signals(self) -> typing.Iterator[MappedSigInfo]:
         for at, sig in self._map.items():
-            yield MappedSigInfo(at=at,
-                                cls_name=sig.cls_name,
-                                state=SigState(sig.get_state()))
+            if not isinstance(sig, signals.chain.dev.Device):
+                yield MappedSigInfo(at=at,
+                                    cls_name=sig.cls_name,
+                                    state=SigState(sig.get_state()))
 
     def iter_connections(self) -> typing.Iterator[ConnectionInfo]:
         for at, sig in self._map.items():
             for slot, input_sig in sig.inputs_by_slot.items():
                 yield ConnectionInfo(input_at=self._map.inv[input_sig],
                                      output=SlotInfo(at=at, slot=slot))
+
+    def iter_sources(self) -> typing.Iterator[MappedDevInfo]:
+        for at, sig in self._map.items():
+            if isinstance(sig, signals.chain.dev.SourceDevice):
+                yield MappedDevInfo.for_source(at=at,
+                                               device=sig.info,
+                                               state=SigState(sig.get_state()))
+
+    def iter_sinks(self) -> typing.Iterator[MappedDevInfo]:
+        for at, sig in self._map.items():
+            if isinstance(sig, signals.chain.dev.SinkDevice):
+                yield MappedDevInfo.for_source(at=at,
+                                               device=sig.info,
+                                               state=SigState(sig.get_state()))
 
     def _find(self, at: Coordinates) -> Signal:
         try:
