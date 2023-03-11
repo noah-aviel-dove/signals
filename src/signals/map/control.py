@@ -63,12 +63,8 @@ class LineCommand(Command, abc.ABC):
         return NonExitingArgumentParser()
 
     @classmethod
-    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls()
-
-    @classmethod
-    def parse(cls, args: typing.Sequence[str]) -> typing.Self:
-        return cls.from_parsed_args(cls.parser().parse_args(args))
+    def process_args(cls, args: argparse.Namespace) -> dict:
+        return vars(args)
 
 
 S = typing.TypeVar(name='S')
@@ -148,10 +144,6 @@ class FileCommand(LineCommand, abc.ABC):
         parser.add_argument('path', type=pathlib.Path)
         return parser
 
-    @classmethod
-    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls(path=args.path)
-
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
 class DeviceAssociationCommand(LineCommand, SerializingCommand, abc.ABC):
@@ -165,10 +157,6 @@ class DeviceAssociationCommand(LineCommand, SerializingCommand, abc.ABC):
         parser.add_argument('at', type=Coordinates.parse)
         parser.add_argument('device_name')
         return parser
-
-    @classmethod
-    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls(at=args.at, device_name=args.device_name)
 
     def serialize(self) -> str:
         return ' '.join((
@@ -194,10 +182,6 @@ class DeviceListCommand(LineCommand, abc.ABC):
         parser = super().parser()
         return parser
 
-    @classmethod
-    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls()
-
     def affect(self, controller: 'Controller') -> None:
         for device in self._get_devices(controller.rack):
             print(str(device), file=controller.stdout)
@@ -217,10 +201,6 @@ class HistoryCommand(LineCommand, abc.ABC):
         parser = super().parser()
         parser.add_argument('times', type=int, nargs='?', default=1)
         return parser
-
-    @classmethod
-    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls(times=args.times)
 
 
 class CommandError(MapLayerError):
@@ -272,14 +252,19 @@ class CommandSet:
             raise BadCommand(alias, cmds=self._commands_by_alias)
 
         try:
-            return cmd_cls.parse(args)
+            args = cmd_cls.process_args(cmd_cls.parser().parse_args(args))
         except argparse.ArgumentError as e:
             raise BadCommandSyntax(e.message)
+
+        return self._create_cmd(cmd_cls, args)
+
+    def _create_cmd(self, cmd_cls: type[LineCommand], cmd_args: dict) -> LineCommand:
+        return cmd_cls(**cmd_args)
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
     class Add(LineCommand, MapCommand, SerializingCommand):
         """
-        >>> c = CommandSet.Add.parse(['1a', 'signals.things.thing', 'foo=1', 'bar="baz"'])
+        >>> c = CommandSet.parse(['1a', 'signals.things.thing', 'foo=1', 'bar="baz"'])
         >>> c.signal
         MappedSigInfo(cls_name='signals.things.thing', state={'foo': 1, 'bar': 'baz'}, at=Coordinates(row=1, col=1))
 
@@ -307,10 +292,10 @@ class CommandSet:
             return parser
 
         @classmethod
-        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-            return cls(signal=MappedSigInfo(at=args.at,
-                                            cls_name=args.sig_cls,
-                                            state=SigState(args.sig_state)))
+        def process_args(cls, args: argparse.Namespace) -> dict:
+            return dict(signal=MappedSigInfo(at=args.at,
+                                             cls_name=args.sig_cls,
+                                             state=SigState(args.sig_state)))
 
         def serialize(self) -> str:
             return ' '.join((
@@ -351,10 +336,6 @@ class CommandSet:
             parser.add_argument('at', type=Coordinates.parse)
             return parser
 
-        @classmethod
-        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-            return cls(at=args.at)
-
         def do(self, sig_map: Map):
             sig_info = sig_map.rm(self.at)
             self.set_stash(sig_info)
@@ -390,13 +371,13 @@ class CommandSet:
         def parser(cls) -> argparse.ArgumentParser:
             parser = super().parser()
             parser.add_argument('at', type=Coordinates.parse)
-            parser.add_argument('sig_state', type=SigStateItem.parse, nargs='+', )
+            parser.add_argument('sig_state', type=SigStateItem.parse, nargs='+')
             return parser
 
         @classmethod
-        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-            return cls(at=args.at,
-                       state=SigState(args.sig_state))
+        def process_args(cls, args: argparse.Namespace) -> dict:
+            return dict(at=args.at,
+                        state=SigState(args.sig_state))
 
         def do(self, sig_map: Map):
             old_state = sig_map.edit(at=self.at, state=self.state)
@@ -434,10 +415,6 @@ class CommandSet:
             parser.add_argument('at2', type=Coordinates.parse)
             return parser
 
-        @classmethod
-        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-            return cls(at1=args.at1, at2=args.at2)
-
         def do(self, sig_map: Map):
             sig_map.mv(self.at1, self.at2)
 
@@ -474,9 +451,9 @@ class CommandSet:
             return parser
 
         @classmethod
-        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-            return cls(connection=ConnectionInfo(input_at=args.input_at,
-                                                 output=args.output))
+        def process_args(cls, args: argparse.Namespace) -> dict:
+            return dict(connection=ConnectionInfo(input_at=args.input_at,
+                                                  output=args.output))
 
         def serialize(self) -> str:
             return ' '.join((
@@ -521,10 +498,6 @@ class CommandSet:
             parser = super().parser()
             parser.add_argument('slot', type=SlotInfo.parse)
             return parser
-
-        @classmethod
-        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-            return cls(slot=args.slot)
 
         def do(self, sig_map: Map):
             input_at = sig_map.disconnect(slot_info=self.slot)
@@ -678,10 +651,6 @@ class CommandSet:
             parser = super().parser()
             parser.add_argument('pattern')
             return parser
-
-        @classmethod
-        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-            return cls(pattern=args.pattern)
 
         def affect(self, controller: 'Controller') -> None:
             for name in controller.grep(self.pattern):
