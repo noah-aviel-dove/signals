@@ -14,11 +14,35 @@ from signals.chain import (
     SlotName,
 )
 
+CoordinateRow = int
+
+
+class CoordinateColumn(int):
+
+    def __new__(cls, value: int | str):
+        if isinstance(value, str):
+            i = 0
+            alphabet_start = ord('a')
+            for e, c in enumerate(reversed(value)):
+                i += (ord(c) - alphabet_start + 1) * 26 ** e
+            value = i
+        if value <= 0:
+            raise ValueError(value)
+        return super().__new__(cls, value)
+
+    def __str__(self):
+        i = self
+        digits = []
+        while i:
+            i, d = divmod(i - 1, 26)
+            digits.append(d)
+        return ''.join(string.ascii_lowercase[d] for d in reversed(digits))
+
 
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
 class Coordinates:
-    row: int = attr.ib(validator=attr.validators.ge(1))
-    col: int = attr.ib(validator=attr.validators.ge(1))
+    row: CoordinateRow = attr.ib(validator=attr.validators.ge(1))
+    col: CoordinateColumn = attr.ib(converter=CoordinateColumn)
 
     def __str__(self) -> str:
         """
@@ -35,7 +59,7 @@ class Coordinates:
         >>> str(Coordinates(row=1234, col=1234))
         '1234aul'
         """
-        return f'{self.row}{self._to_letters(self.col)}'
+        return f'{self.row}{self.col}'
 
     _coord_re = re.compile(r'(\d+)([a-z]+)')
 
@@ -60,25 +84,9 @@ class Coordinates:
         match = re.fullmatch(cls._coord_re, s)
         if match:
             row, col = match.groups()
-            return cls(row=int(row), col=cls._from_letters(col))
+            return cls(row=int(row), col=CoordinateColumn(col))
         else:
             raise ValueError(s)
-
-    @classmethod
-    def _from_letters(cls, s: str) -> int:
-        i = 0
-        alphabet_start = ord('a')
-        for e, c in enumerate(reversed(s)):
-            i += (ord(c) - alphabet_start + 1) * 26 ** e
-        return i
-
-    @classmethod
-    def _to_letters(cls, i: int) -> str:
-        digits = []
-        while i:
-            i, d = divmod(i - 1, 26)
-            digits.append(d)
-        return ''.join(string.ascii_lowercase[d] for d in reversed(digits))
 
 
 class SigStateItem(typing.NamedTuple):

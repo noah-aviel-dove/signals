@@ -432,7 +432,8 @@ class Save(FileCommand):
 
     def affect(self, controller):
         with open(self.path, 'w') as f:
-            controller.dump(f)
+            for line in controller.dump():
+                f.write(line + '\n')
 
 
 class Load(FileCommand):
@@ -453,7 +454,8 @@ class Show(Command):
         return 'show'
 
     def affect(self, controller: 'Controller') -> None:
-        controller.dump(controller.stdout)
+        for line in controller.dump():
+            print(line, file=controller.stdout)
 
 
 class Exit(Command):
@@ -550,7 +552,8 @@ class Controller(cmd.Cmd):
         batch = tuple(batch)
         self._process_batch(batch)
         if self.history_index is not None:
-            del self.history[self.history_index + 1:]
+            while len(self.history) > self.history_index + 1:
+                self.history.pop()
         self.history.append(batch)
         self.history_index = len(self.history) - 1
 
@@ -573,11 +576,11 @@ class Controller(cmd.Cmd):
             self._process_batch(batch)
             self.history_index = target_index
 
-    def dump(self, file: typing.IO[str]) -> None:
+    def dump(self) -> typing.Iterator[str]:
         for signal in self.map.iter_signals():
-            file.write(Add(signal=signal).serialize() + '\n')
+            yield Add(signal=signal).serialize()
         for connection in self.map.iter_connections():
-            file.write(Connect(connection=connection).serialize() + '\n')
+            yield Connect(connection=connection).serialize()
 
     def load(self, file: typing.IO[str]) -> None:
         # FIXME this could be made to support undo
