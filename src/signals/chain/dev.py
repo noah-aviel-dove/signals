@@ -1,5 +1,4 @@
 import abc
-import operator
 import queue
 import sys
 import threading
@@ -11,17 +10,15 @@ import sounddevice as sd
 
 from signals.chain import (
     BlockLoc,
-    SignalType,
-    Shape,
-)
-from signals.chain import (
-    Signal,
     Request,
+    Shape,
+    Signal,
+    SignalType,
     slot,
 )
 
 
-@attr.s(auto_attribs=True, frozen=True, kw_only=True)
+@attr.s(auto_attribs=True, frozen=True, kw_only=True, order=False)
 class DeviceInfo:
     name: str
     index: int
@@ -34,6 +31,37 @@ class DeviceInfo:
     default_high_output_latency: float
     default_samplerate: float
 
+    @property
+    def is_source(self) -> bool:
+        return self.max_input_channels > 0
+
+    @property
+    def is_sink(self) -> bool:
+        return self.max_output_channels > 0
+
+    def __str__(self) -> str:
+        return '\n'.join((
+            f'{self.index:<3} {self.name} ({self.hostapi})',
+            f'\tMaximum supported channels (I/O): {self.max_input_channels}/{self.max_output_channels}',
+            f'\tDefault samplerate: {self.default_samplerate}',
+            f'\tDefault interactive latency{self._format_latency(self.default_low_input_latency, self.default_low_output_latency)}',
+            f'\tDefault non-interactive latency{self._format_latency(self.default_high_input_latency, self.default_low_output_latency)}'
+        ))
+
+    def _format_latency(self, input: float, output: float) -> str:
+        if input != output and self.is_source and self.is_sink:
+            result = f' (I/O): {input:.05}/{output:.05}'
+        elif self.is_source:
+            result = f': {input:.05}'
+        elif self.is_sink:
+            result = f': {output:.05}'
+        else:
+            assert False, self
+        return result
+
+    def __lt__(self, other: typing.Self) -> bool:
+        return self.index < other.index
+
 
 class Device(Signal, abc.ABC):
 
@@ -41,13 +69,6 @@ class Device(Signal, abc.ABC):
         super().__init__()
         self.info = info
         self._stopper = None
-
-    @classmethod
-    def list(cls) -> list[typing.Self]:
-        return [
-            cls(DeviceInfo(**info))
-            for info in sorted(sd.query_devices(), key=operator.itemgetter('index'))
-        ]
 
     @property
     def channels(self) -> int:
@@ -57,22 +78,17 @@ class Device(Signal, abc.ABC):
         print(msg, sys.stderr)
 
     def destroy(self) -> None:
-        self._stopper.set()
-
-    def get_state(self) -> dict:
-        raise NotImplementedError
+        if self._stopper is not None:
+            self._stopper.set()
 
 
 class SinkDevice(Device):
+    # FIXME this should support buffer caching, right?
     input = slot('input')
 
     @property
     def type(self) -> SignalType:
         return SignalType.PLAYBACK
-
-    @classmethod
-    def list(cls) -> list[typing.Self]:
-        return [dev for dev in super().list() if dev.info.max_output_channels > 0]
 
     def play(self):
         position = 0
@@ -94,6 +110,8 @@ class SinkDevice(Device):
             self._stopper.wait()
 
     def _eval(self, request: Request):
+        # FIXME refactor Signal hierarchy so that devices do not have to inherit
+        # all the stuff in the current base class
         assert False, self
 
 
@@ -107,14 +125,11 @@ class SourceDevice(Device):
     def type(self) -> SignalType:
         return SignalType.GENERATOR
 
-    @classmethod
-    def list(cls) -> list[typing.Self]:
-        return [dev for dev in super().list() if dev.info.max_input_channels > 0]
-
     def _callback(self, indata: np.ndarray, frames: int, time: typing.Any, status: sd.CallbackFlags) -> None:
         if status:
             self.log(status)
         if frames:
+            # FIXME why is copy necessary?
             self.q.put(indata.copy())
         else:
             raise sd.CallbackStop
