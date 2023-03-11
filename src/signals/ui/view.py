@@ -160,15 +160,19 @@ class Wrapper(QtWidgets.QGraphicsWidget):
             dbgrect(self, painter, QtGui.QColorConstants.Yellow)
 
 
-class GraphEditor(QtWidgets.QGraphicsScene):
+class Scene(QtWidgets.QGraphicsScene):
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
-        self.setBackgroundBrush(signals.ui.theme.current().palette.window())
         self.addItem(Wrapper())
+        signals.ui.theme.register(self)
         self.mouse_collider = QtWidgets.QGraphicsRectItem(0, 0, 1, 1)
         self.mouse_collider.setVisible(False)
         self.addItem(self.mouse_collider)
+
+    def setPalette(self, palette: QtGui.QPalette) -> None:
+        super().setPalette(palette)
+        self.setBackgroundBrush(palette.window())
 
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         self.dispatch_mouse_event(event, operator.methodcaller('mouseReleaseEvent', event))

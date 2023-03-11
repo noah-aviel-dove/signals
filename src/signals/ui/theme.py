@@ -2,11 +2,11 @@ import enum
 import typing
 
 from PyQt5 import (
+    QtCore,
     QtGui,
+    QtWidgets,
 )
 import attr
-
-import signals
 
 
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
@@ -114,5 +114,21 @@ WHITE = Theme.create('Bones', ThemeType.HIGH_CONTRAST, PartialSimplePalette(
 ))
 
 
-def current() -> Theme:
-    return signals.app().project.config.theme
+class ThemeController(QtCore.QObject):
+    theme_set = QtCore.pyqtSignal(object)
+
+    def __init__(self):
+        super().__init__()
+        self.theme = None
+
+    def set_theme(self, theme: Theme):
+        self.theme = theme
+        self.theme_set.emit(theme.palette)
+
+
+controller = ThemeController()
+
+
+def register(user: QtWidgets.QWidget | QtWidgets.QGraphicsWidget | QtWidgets.QGraphicsScene) -> None:
+    user.setPalette(controller.theme.palette)
+    controller.theme_set.connect(user.setPalette)

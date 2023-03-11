@@ -192,18 +192,6 @@ class BufferCacheControl(QtWidgets.QGraphicsRectItem):
     pass
 
 
-class EventControl(QtWidgets.QGraphicsLineItem):
-    pass
-
-
-class EventTrigger(EventControl):
-    pass
-
-
-class EventCaster(EventControl):
-    pass
-
-
 class Visualizer(QtWidgets.QGraphicsRectItem):
     pass
 
