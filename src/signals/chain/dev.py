@@ -18,7 +18,7 @@ from signals.chain import (
 )
 
 
-@attr.s(auto_attribs=True, frozen=True, kw_only=True)
+@attr.s(auto_attribs=True, frozen=True, kw_only=True, order=False)
 class DeviceInfo:
     name: str
     index: int
@@ -30,6 +30,37 @@ class DeviceInfo:
     default_high_input_latency: float
     default_high_output_latency: float
     default_samplerate: float
+
+    @property
+    def is_source(self) -> bool:
+        return self.max_input_channels > 0
+
+    @property
+    def is_sink(self) -> bool:
+        return self.max_output_channels > 0
+
+    def __str__(self) -> str:
+        return '\n'.join((
+            f'{self.index:<3} {self.name} ({self.hostapi})',
+            f'\tMaximum supported channels (I/O): {self.max_input_channels}/{self.max_output_channels}',
+            f'\tDefault samplerate: {self.default_samplerate}',
+            f'\tDefault interactive latency{self._format_latency(self.default_low_input_latency, self.default_low_output_latency)}',
+            f'\tDefault non-interactive latency{self._format_latency(self.default_high_input_latency, self.default_low_output_latency)}'
+        ))
+
+    def _format_latency(self, input: float, output: float) -> str:
+        if input != output and self.is_source and self.is_sink:
+            result = f' (I/O): {input:.05}/{output:.05}'
+        elif self.is_source:
+            result = f': {input:.05}'
+        elif self.is_sink:
+            result = f': {output:.05}'
+        else:
+            assert False, self
+        return result
+
+    def __lt__(self, other: typing.Self) -> bool:
+        return self.index < other.index
 
 
 class Device(Signal, abc.ABC):
