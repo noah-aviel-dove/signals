@@ -14,6 +14,9 @@ import signals.chain.dev
 import signals.layout
 from signals.ui import dbgrect
 import signals.ui.graph
+from signals.ui.patcher import (
+    Patcher,
+)
 import signals.ui.theme
 import signals.ui.graph
 
@@ -164,7 +167,6 @@ class Scene(QtWidgets.QGraphicsScene):
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
-        self.addItem(Wrapper())
         signals.ui.theme.register(self)
         self.mouse_collider = QtWidgets.QGraphicsRectItem(0, 0, 1, 1)
         self.mouse_collider.setVisible(False)
@@ -181,6 +183,8 @@ class Scene(QtWidgets.QGraphicsScene):
         self.dispatch_mouse_event(event, operator.methodcaller('mousePressEvent', event))
 
     def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
+        # Dispatch hover events, etc
+        super().mouseMoveEvent(event)
         self.dispatch_mouse_event(event, operator.methodcaller('mouseMoveEvent', event))
 
     def dispatch_mouse_event(self,
@@ -202,3 +206,7 @@ class Scene(QtWidgets.QGraphicsScene):
             for item in self.collidingItems(self.mouse_collider):
                 if attempt(item):
                     break
+            # The scene appears to jump around when clicking, I think because
+            # it's trying to keep this item on screen. This is an attempt tp
+            # prevent that.
+            self.mouse_collider.setPos(0, 0)
