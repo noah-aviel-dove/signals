@@ -597,14 +597,15 @@ class Controller(cmd.Cmd):
 
     def __init__(self,
                  interactive: bool,
-                 command_set: CommandSet,
+                 command_set: CommandSet = None,
+                 map: Map = None,
                  paths: typing.Iterable[pathlib.Path] = (),
                  stdin=None,
                  stdout=None):
         super().__init__(stdin=stdin, stdout=stdout)
         self.use_rawinput = not interactive
-        self.map = Map()
-        self.command_set = command_set
+        self.map = Map() if map is None else map
+        self.command_set = CommandSet() if command_set is None else command_set
         self.library = signals.chain.discovery.Library(paths)
         self.library.scan()
         self.history = collections.deque[typing.Sequence[MapCommand]](maxlen=100)
@@ -714,5 +715,6 @@ class Controller(cmd.Cmd):
 if __name__ == '__main__':
     cmd_line = Controller(interactive=True,
                           command_set=CommandSet(),
+                          map=Map(),
                           paths=map(pathlib.Path, sys.argv[1:]))
     cmd_line.cmdloop()
