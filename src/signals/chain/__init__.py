@@ -1,7 +1,6 @@
 import abc
 import collections
 import enum
-import inspect
 import typing
 
 import attr
@@ -157,7 +156,7 @@ class Signal(abc.ABC):
 
     def __init__(self):
         self._outputs: set[tuple[SlotName, Signal]] = set()
-        self._last_reqest: typing.Optional[Request] = None
+        self._last_request: typing.Optional[Request] = None
         self.enabled: bool = True
         self._slots = {
             slot: BoundSlot(parent=self, name=slot)
@@ -171,10 +170,10 @@ class Signal(abc.ABC):
 
     @property
     def rate(self) -> RequestRate:
-        if self._last_reqest is None:
+        if self._last_request is None:
             return RequestRate.UNKNOWN
         else:
-            frames = self._last_reqest.loc.shape.frames
+            frames = self._last_request.loc.shape.frames
             if frames <= 0:
                 return RequestRate.UNKNOWN
             elif frames == 1:
@@ -239,7 +238,7 @@ class Signal(abc.ABC):
         return result
 
     def respond(self, request: Request) -> np.ndarray:
-        self._last_reqest = request
+        self._last_request = request
         return self._get_result(request)
 
     def destroy(self) -> None:
