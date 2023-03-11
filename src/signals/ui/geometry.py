@@ -1,4 +1,4 @@
-import itertools
+import typing
 
 from PyQt5 import (
     QtCore,
@@ -61,13 +61,36 @@ def tribar_polygon(s1: QtCore.QPointF, s2: QtCore.QPointF, radius: float) -> QtG
     sign = -np.sign(delta.x()) * np.sign(delta.y())
     if abs(delta.x()) < abs(delta.y()):
         offset_tips = QtCore.QPointF(radius, 0)
-        a_bends = np.pi/8 * sign
+        a_bends = np.pi / 8 * sign
     else:
         offset_tips = QtCore.QPointF(radius, radius * sign) / np.sqrt(2)
-        a_bends = np.pi*3/8 * sign
-    offset_bends = circ(a_bends, radius / np.cos(np.pi/8))
+        a_bends = np.pi * 3 / 8 * sign
+    offset_bends = circ(a_bends, radius / np.cos(np.pi / 8))
     p1, p2, p3, p4 = tribar_polyline(s1, s2)
     return QtGui.QPolygonF([
         p1 + offset_tips, p2 + offset_bends, p3 + offset_bends, p4 + offset_tips,
         p4 - offset_tips, p3 - offset_bends, p2 - offset_bends, p1 - offset_tips
     ])
+
+
+R = typing.TypeVar(name='R', bound=QtCore.QRect | QtCore.QRectF)
+
+
+def scale_rect(rect: R, s: float) -> R:
+    scaled = QtCore.QRectF(0.0, 0.0, rect.width() * s, rect.height() * s)
+    scaled.moveCenter(rect.center())
+    return scaled if isinstance(scaled, QtCore.QRectF) else scaled.toRect()
+
+
+def rect_containing_points(*ps: QtCore.QPoint) -> QtCore.QRect:
+    coords = np.array(list(zip(*[(p.x(), p.y()) for p in ps])))
+    (minx, miny), (maxx, maxy) = coords.min(1), coords.max(1)
+    return QtCore.QRect(minx, miny, maxx - minx + 1, maxy - miny + 1)
+
+
+def clip_to_rect(p: QtCore.QPointF, r: QtCore.QRectF):
+    p.setX(max(p.x(), r.left()))
+    p.setX(min(p.x(), r.right()))
+    p.setY(max(p.y(), r.top()))
+    p.setY(min(p.y(), r.bottom()))
+    assert r.contains(p)
