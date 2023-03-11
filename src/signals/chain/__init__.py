@@ -1,7 +1,6 @@
 import abc
 import collections
 import enum
-import inspect
 import typing
 
 import attr
@@ -77,6 +76,7 @@ class BlockLoc:
 
 
 SlotName = str
+SignalName = str
 
 
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
@@ -243,8 +243,11 @@ class Signal(abc.ABC):
         return self._get_result(request)
 
     def destroy(self) -> None:
-        for slot in self._slots:
-            delattr(self, slot)
+        # FIXME this is technically no longer needed thanks to the map layer,
+        # but still maybe a good idea?
+        for slot_name, bound_slot in self._slots.items():
+            if bound_slot:
+                delattr(self, slot_name)
 
     @abc.abstractmethod
     def _eval(self, request: Request) -> np.ndarray:
@@ -259,7 +262,7 @@ class Signal(abc.ABC):
         raise NotImplementedError
 
     @property
-    def cls_name(self) -> str:
+    def cls_name(self) -> SignalName:
         type_ = type(self)
         return f'{type_.__module__}.{type_.__qualname__}'
 
@@ -278,28 +281,6 @@ class Signal(abc.ABC):
             raise KeyError(*ks)
         for k, v in state.items():
             setattr(self, k, v)
-
-    @classmethod
-    def create(cls, cls_qualname: str) -> 'Signal':
-        try:
-            module_qualname, cls_name = cls_qualname.rsplit('.', 1)
-        except ValueError:
-            raise ImportError('Signal name must include a "."')
-        module = __import__(module_qualname)
-        _, *submodules = module_qualname.split('.')
-        for attrib in submodules:
-            module = getattr(module, attrib)
-        try:
-            target_cls = getattr(module, cls_name)
-        except AttributeError as e:
-            raise ImportError(*e.args)
-        if isinstance(target_cls, type) and issubclass(target_cls, cls):
-            if inspect.isabstract(target_cls):
-                raise ImportError(f'{cls_qualname} is abstract')
-            else:
-                return target_cls()
-        else:
-            raise ImportError(f'{cls_qualname!r} is not a signal')
 
 
 def slot(name: SlotName) -> _Slot:

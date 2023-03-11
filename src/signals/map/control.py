@@ -2,6 +2,7 @@ import abc
 import argparse
 import cmd
 import collections
+import fnmatch
 import functools
 import pathlib
 import shlex
@@ -11,6 +12,7 @@ import typing
 import attr
 import more_itertools
 
+import signals.chain.discovery
 from signals.map import (
     BadName,
     ConnectionInfo,
@@ -363,6 +365,56 @@ class Disconnect(MapCommand, LossyCommand[ConnectionInfo]):
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+class DeviceCommand(MapCommand, SerializingCommand, abc.ABC):
+    at: Coordinates
+    device_name: str
+
+    @classmethod
+    @functools.lru_cache(1)
+    def parser(cls) -> argparse.ArgumentParser:
+        parser = super().parser()
+        parser.add_argument('at', type=Coordinates.parse)
+        parser.add_argument('device_name')
+        return parser
+
+    @classmethod
+    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
+        return cls(at=args.at, device_name=args.device_name)
+
+    def serialize(self) -> str:
+        return ' '.join((
+            self.name(),
+            str(self.at),
+            self.device_name
+        ))
+
+    def undo(self, sig_map: Map):
+        sig_map.rm(self.at)
+
+
+@attr.s(auto_attribs=True, kw_only=True, frozen=True)
+class Source(DeviceCommand):
+
+    @classmethod
+    def name(cls) -> str:
+        return 'source'
+
+    def do(self, sip_map: Map):
+        pass
+
+
+@attr.s(auto_attribs=True, kw_only=True, frozen=True)
+class Sink(DeviceCommand):
+
+    @classmethod
+    def name(cls) -> str:
+        return 'source'
+
+    def do(self, sip_map: Map):
+        pass
+
+
+@attr.s(auto_attribs=True, kw_only=True, frozen=True)
 class HistoryCommand(Command, abc.ABC):
     times: int
 
@@ -468,6 +520,30 @@ class Exit(Command):
         controller.exit = True
 
 
+@attr.s(auto_attribs=True, kw_only=True, frozen=True)
+class Grep(Command):
+    pattern: str
+
+    @classmethod
+    def name(cls) -> str:
+        return 'grep'
+
+    @classmethod
+    @functools.lru_cache(1)
+    def parser(cls) -> argparse.ArgumentParser:
+        parser = super().parser()
+        parser.add_argument('pattern')
+        return parser
+
+    @classmethod
+    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
+        return cls(pattern=args.pattern)
+
+    def affect(self, controller: 'Controller') -> None:
+        for name in controller.grep(self.pattern):
+            print(name, file=controller.stdout)
+
+
 class CommandError(MapLayerError):
     pass
 
@@ -502,6 +578,7 @@ class Controller(cmd.Cmd):
 
     def __init__(self,
                  interactive: bool,
+                 paths: typing.Iterable[pathlib.Path] = (),
                  completekey='tab',
                  stdin=None,
                  stdout=None):
@@ -511,6 +588,10 @@ class Controller(cmd.Cmd):
         self.history = collections.deque[typing.Sequence[MapCommand]](maxlen=100)
         self.history_index = None
         self.exit = False
+        if not paths:
+            paths = [pathlib.Path(signals.chain.__file__).parent]
+        self.discoverer = signals.chain.discovery.SignalDiscoverer(*paths)
+        self.discoverer.scan()
 
     @property
     def interactive(self) -> bool:
@@ -584,12 +665,17 @@ class Controller(cmd.Cmd):
 
     def load(self, file: typing.IO[str]) -> None:
         # FIXME this could be made to support undo
-        loader = Controller(interactive=False, stdin=file, stdout=self.stdout)
-        loader.use_rawinput = True
+        loader = Controller(interactive=False,
+                            paths=self.discoverer.paths,
+                            stdin=file,
+                            stdout=self.stdout)
         loader.cmdloop()
         self.history.clear()
         self.history_index = None
         self.map = loader.map
+
+    def grep(self, pattern: str) -> list[str]:
+        return sorted(fnmatch.filter(self.discoverer.names, pattern))
 
     def _process_batch(self, batch: typing.Reversible[MapCommand], undo: bool = False):
         if undo:

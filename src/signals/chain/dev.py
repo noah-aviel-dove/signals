@@ -1,5 +1,4 @@
 import abc
-import operator
 import queue
 import sys
 import threading
@@ -11,12 +10,10 @@ import sounddevice as sd
 
 from signals.chain import (
     BlockLoc,
-    SignalType,
-    Shape,
-)
-from signals.chain import (
-    Signal,
     Request,
+    Shape,
+    Signal,
+    SignalType,
     slot,
 )
 
@@ -42,13 +39,6 @@ class Device(Signal, abc.ABC):
         self.info = info
         self._stopper = None
 
-    @classmethod
-    def list(cls) -> list[typing.Self]:
-        return [
-            cls(DeviceInfo(**info))
-            for info in sorted(sd.query_devices(), key=operator.itemgetter('index'))
-        ]
-
     @property
     def channels(self) -> int:
         return self.info.max_input_channels
@@ -57,22 +47,17 @@ class Device(Signal, abc.ABC):
         print(msg, sys.stderr)
 
     def destroy(self) -> None:
-        self._stopper.set()
-
-    def get_state(self) -> dict:
-        raise NotImplementedError
+        if self._stopper is not None:
+            self._stopper.set()
 
 
 class SinkDevice(Device):
+    # FIXME this should support buffer caching, right?
     input = slot('input')
 
     @property
     def type(self) -> SignalType:
         return SignalType.PLAYBACK
-
-    @classmethod
-    def list(cls) -> list[typing.Self]:
-        return [dev for dev in super().list() if dev.info.max_output_channels > 0]
 
     def play(self):
         position = 0
@@ -94,6 +79,8 @@ class SinkDevice(Device):
             self._stopper.wait()
 
     def _eval(self, request: Request):
+        # FIXME refactor Signal hierarchy so that devices do not have to inherit
+        # all the stuff in the current base class
         assert False, self
 
 
@@ -107,14 +94,11 @@ class SourceDevice(Device):
     def type(self) -> SignalType:
         return SignalType.GENERATOR
 
-    @classmethod
-    def list(cls) -> list[typing.Self]:
-        return [dev for dev in super().list() if dev.info.max_input_channels > 0]
-
     def _callback(self, indata: np.ndarray, frames: int, time: typing.Any, status: sd.CallbackFlags) -> None:
         if status:
             self.log(status)
         if frames:
+            # FIXME why is copy necessary?
             self.q.put(indata.copy())
         else:
             raise sd.CallbackStop

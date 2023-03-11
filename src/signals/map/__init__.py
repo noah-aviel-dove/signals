@@ -1,4 +1,5 @@
 import abc
+import functools
 import json
 import re
 import string
@@ -7,12 +8,13 @@ import typing
 import attr
 import bijection
 
-import signals.chain
 from signals.chain import (
     SigStateValue,
     Signal,
     SlotName,
+    SignalName,
 )
+import signals.chain.discovery
 
 CoordinateRow = int
 
@@ -116,8 +118,12 @@ class SigState(signals.chain.SigState):
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
 class SigInfo:
-    cls_name: str
+    cls_name: SignalName
     state: SigState
+
+    @functools.cached_property
+    def slot_names(self) -> list[signals.chain.SlotName]:
+        return signals.chain.discovery.load_cls(self.cls_name).slot_names()
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
@@ -151,9 +157,9 @@ class LinkedSigInfo(MappedSigInfo):
     links_out: typing.Collection[ConnectionInfo]
 
     @property
-    def links(self) -> typing.Iterable[ConnectionInfo]:
-        yield from iter(self.links_in)
-        yield from iter(self.links_out)
+    def links(self) -> typing.Iterator[ConnectionInfo]:
+        yield from self.links_in
+        yield from self.links_out
 
 
 class MapLayerError(Exception):
@@ -221,34 +227,38 @@ class Map:
     def __init__(self):
         self._map = bijection.Bijection[Coordinates, Signal]()
 
+    def get(self, at: Coordinates) -> LinkedSigInfo:
+        sig = self._find(at)
+        return LinkedSigInfo(at=at,
+                             cls_name=sig.cls_name,
+                             state=SigState(sig.get_state()),
+                             links_in=list(self._find_inputs(at, sig)),
+                             links_out=list(self._find_outputs(at, sig)))
+
     def add(self, info: MappedSigInfo):
         try:
-            sig = Signal.create(info.cls_name)
-        except ImportError as e:
+            sig_cls = signals.chain.discovery.load_cls(info.cls_name)
+        except signals.chain.discovery.BadSignal as e:
             raise BadSignal(info.at, info.cls_name, e.args[0])
         else:
+            sig = sig_cls()
             self._set_state(info.at, sig, info.state)
             if self._map.setdefault(info.at, sig) is not sig:
                 raise NonEmpty(info.at)
 
     def rm(self, at: Coordinates) -> LinkedSigInfo:
         sig = self._pop(at)
-        inputs = []
-        outputs = []
-        for slot in sig.slot_names():
-            if getattr(sig, slot):
-                slot_info = SlotInfo(at=at, slot=slot)
-                input_at = self.disconnect(slot_info=slot_info)
-                inputs.append(ConnectionInfo(input_at=input_at, output=slot_info))
-        for slot, output_sig in sig.outputs_with_slots:
-            slot_info = SlotInfo(at=self._map.inv[output_sig], slot=slot)
-            assert self.disconnect(slot_info=slot_info) == at
-            outputs.append(ConnectionInfo(input_at=at, output=slot_info))
-        return LinkedSigInfo(at=at,
-                             cls_name=sig.cls_name,
-                             state=SigState(sig.get_state()),
-                             links_in=inputs,
-                             links_out=outputs)
+        inputs = list(self._find_inputs(at, sig))
+        outputs = list(self._find_outputs(at, sig))
+        result = LinkedSigInfo(at=at,
+                               cls_name=sig.cls_name,
+                               state=SigState(sig.get_state()),
+                               links_in=inputs,
+                               links_out=outputs)
+        for connection in result.links:
+            assert self.disconnect(connection.output) == connection.input_at, connection
+        sig.destroy()
+        return result
 
     def edit(self, at: Coordinates, state: SigState) -> SigState:
         sig = self._find(at)
@@ -321,3 +331,16 @@ class Map:
             signal.set_state(state)
         except KeyError as e:
             raise BadProperty(at, signal, e.args[0])
+
+    def _find_inputs(self, at: Coordinates, signal: Signal) -> typing.Iterator[ConnectionInfo]:
+        for slot in signal.slot_names():
+            if input := getattr(signal, slot):
+                slot_info = SlotInfo(at=at, slot=slot)
+                input_at = self._map.inv[input]
+                yield ConnectionInfo(input_at=input_at, output=slot_info)
+
+    def _find_outputs(self, at: Coordinates, signal: Signal) -> typing.Iterator[ConnectionInfo]:
+        for slot, output_sig in signal.outputs_with_slots:
+            output_at = self._map.inv[output_sig]
+            slot_info = SlotInfo(at=output_at, slot=slot)
+            yield ConnectionInfo(input_at=at, output=slot_info)
