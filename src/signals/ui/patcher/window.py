@@ -2,9 +2,12 @@ import functools
 import pathlib
 
 from PyQt5 import (
+    QtCore,
     QtGui,
     QtWidgets,
 )
+
+import PyQtCmd
 
 import signals.map.control
 import signals.ui.patcher
@@ -23,7 +26,7 @@ class Window(QtWidgets.QMainWindow):
         self.saved_hash = None
         self.patcher = signals.ui.patcher.Patcher()
         self.controller = signals.map.control.Controller(
-            interactive=False,
+            interactive=True,
             map=signals.ui.patcher.map.PatcherMap(self.patcher)
         )
 
@@ -52,10 +55,23 @@ class Window(QtWidgets.QMainWindow):
         add_source = self._create_action('Add input device', 'Alt+I', self.add_source_at_active)
         self.addAction(add_source)
 
+        def interpreter(line: str) -> bool:
+            self.controller.onecmd(line)
+            return False
+
+        console = PyQtCmd.QCmdConsole(interpreter=interpreter)
+        console_dock = QtWidgets.QDockWidget()
+        console_dock.setWidget(console)
+        signals.ui.theme.register(console_dock)
+
+        self.controller.stdout = console.stdout
+        self.controller.stdin = None
+
         scene = signals.ui.view.Scene(self)
         scene.addItem(self.patcher)
         view = QtWidgets.QGraphicsView(scene)
         self.setCentralWidget(view)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, console_dock)
         self.setStatusBar(QtWidgets.QStatusBar())
 
         signals.ui.theme.register(self.menuBar())
