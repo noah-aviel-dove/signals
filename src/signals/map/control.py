@@ -6,6 +6,7 @@ import fnmatch
 import functools
 import pathlib
 import shlex
+import sys
 import traceback
 import typing
 
@@ -13,6 +14,7 @@ import attr
 import more_itertools
 
 import signals.chain.discovery
+import signals.discovery
 from signals.map import (
     BadName,
     ConnectionInfo,
@@ -54,7 +56,7 @@ class Command(abc.ABC):
         return cls()
 
     @classmethod
-    def parse(cls, args: list[str]) -> typing.Self:
+    def parse(cls, args: typing.Sequence[str]) -> typing.Self:
         return cls.from_parsed_args(cls.parser().parse_args(args))
 
     @abc.abstractmethod
@@ -102,266 +104,19 @@ class MapCommand(Command, abc.ABC):
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class Add(MapCommand, SerializingCommand):
-    """
-    >>> c = Add.parse(['1a', 'signals.things.thing', 'foo=1', 'bar="baz"'])
-    >>> c.signal
-    MappedSigInfo(cls_name='signals.things.thing', state={'foo': 1, 'bar': 'baz'}, at=Coordinates(row=1, col=1))
-
-    >>> c.serialize()
-    '+ 1a signals.things.thing bar="baz" foo=1'
-    """
-
-    signal: MappedSigInfo
-
-    @classmethod
-    def symbol(cls) -> str:
-        return '+'
-
-    @classmethod
-    def name(cls) -> str:
-        return 'add'
+class FileCommand(Command, abc.ABC):
+    path: pathlib.Path
 
     @classmethod
     @functools.lru_cache(1)
     def parser(cls) -> argparse.ArgumentParser:
         parser = super().parser()
-        parser.add_argument('at', type=Coordinates.parse)
-        parser.add_argument('sig_cls', type=str)
-        parser.add_argument('sig_state', type=SigStateItem.parse, nargs='*')
+        parser.add_argument('path', type=pathlib.Path)
         return parser
 
     @classmethod
     def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls(signal=MappedSigInfo(at=args.at,
-                                        cls_name=args.sig_cls,
-                                        state=SigState(args.sig_state)))
-
-    def serialize(self) -> str:
-        return ' '.join((
-            self.symbol(),
-            str(self.signal.at),
-            self.signal.cls_name,
-            str(self.signal.state)
-        ))
-
-    def do(self, sig_map: Map):
-        sig_map.add(self.signal)
-
-    def undo(self, sig_map: Map):
-        sig_map.rm(self.signal.at)
-
-
-@attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class Remove(MapCommand, LossyCommand[LinkedSigInfo]):
-    """
-    >>> c = Remove.parse(['1a'])
-    >>> c.at
-    Coordinates(row=1, col=1)
-    """
-
-    at: Coordinates
-
-    @classmethod
-    def symbol(cls) -> str:
-        return '-'
-
-    @classmethod
-    def name(cls) -> str:
-        return 'rm'
-
-    @classmethod
-    @functools.lru_cache(1)
-    def parser(cls) -> argparse.ArgumentParser:
-        parser = super().parser()
-        parser.add_argument('at', type=Coordinates.parse)
-        return parser
-
-    @classmethod
-    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls(at=args.at)
-
-    def do(self, sig_map: Map):
-        sig_info = sig_map.rm(self.at)
-        self.set_stash(sig_info)
-
-    def undo(self, sig_map: Map):
-        sig_map.add(self.stash)
-        for connection in self.stash.links:
-            sig_map.connect(connection)
-
-
-@attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class Edit(MapCommand, LossyCommand[SigState]):
-    """
-    >>> c = Edit.parse(['1a', 'foo=1', 'bar="baz"'])
-    >>> c.at
-    Coordinates(row=1, col=1)
-    >>> c.state
-    {'foo': 1, 'bar': 'baz'}
-    """
-
-    at: Coordinates
-    state: SigState
-
-    @classmethod
-    def symbol(cls) -> str:
-        return '*'
-
-    @classmethod
-    def name(cls) -> str:
-        return 'ed'
-
-    @classmethod
-    @functools.lru_cache(1)
-    def parser(cls) -> argparse.ArgumentParser:
-        parser = super().parser()
-        parser.add_argument('at', type=Coordinates.parse)
-        parser.add_argument('sig_state', type=SigStateItem.parse, nargs='+', )
-        return parser
-
-    @classmethod
-    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls(at=args.at,
-                   state=SigState(args.sig_state))
-
-    def do(self, sig_map: Map):
-        old_state = sig_map.edit(at=self.at, state=self.state)
-        self.set_stash(old_state)
-
-    def undo(self, sig_map: Map):
-        sig_map.edit(self.at, self.stash)
-
-
-@attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class Move(MapCommand):
-    """
-    >>> c = Move.parse(['1a', '2b'])
-    >>> c.at1
-    Coordinates(row=1, col=1)
-    >>> c.at2
-    Coordinates(row=2, col=2)
-    """
-
-    at1: Coordinates
-    at2: Coordinates
-
-    @classmethod
-    def symbol(cls) -> str:
-        return '='
-
-    @classmethod
-    def name(cls) -> str:
-        return 'mv'
-
-    @classmethod
-    @functools.lru_cache(1)
-    def parser(cls) -> argparse.ArgumentParser:
-        parser = super().parser()
-        parser.add_argument('at1', type=Coordinates.parse)
-        parser.add_argument('at2', type=Coordinates.parse)
-        return parser
-
-    @classmethod
-    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls(at1=args.at1, at2=args.at2)
-
-    def do(self, sig_map: Map):
-        sig_map.mv(self.at1, self.at2)
-
-    def undo(self, sig_map: Map):
-        sig_map.mv(self.at2, self.at1)
-
-
-@attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class Connect(MapCommand, SerializingCommand, LossyCommand[ConnectionInfo | None]):
-    """
-    >>> c = Connect.parse(['1a', '2b.foo'])
-    >>> c.connection
-    ConnectionInfo(input_at=Coordinates(row=1, col=1), output=SlotInfo(at=Coordinates(row=2, col=2), slot='foo'))
-
-    >>> c.serialize()
-    '> 1a 2b.foo'
-    """
-
-    connection: ConnectionInfo
-
-    @classmethod
-    def symbol(cls) -> str:
-        return '>'
-
-    @classmethod
-    def name(cls) -> str:
-        return 'con'
-
-    @classmethod
-    @functools.lru_cache(1)
-    def parser(cls) -> argparse.ArgumentParser:
-        parser = super().parser()
-        parser.add_argument('input_at', type=Coordinates.parse)
-        parser.add_argument('output', type=SlotInfo.parse)
-        return parser
-
-    @classmethod
-    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls(connection=ConnectionInfo(input_at=args.input_at,
-                                             output=args.output))
-
-    def serialize(self) -> str:
-        return ' '.join((
-            self.symbol(),
-            str(self.connection.input_at),
-            str(self.connection.output)
-        ))
-
-    def do(self, sig_map: Map):
-        old_input_at = sig_map.connect(self.connection)
-        self.set_stash(None
-                       if old_input_at is None else
-                       ConnectionInfo(input_at=old_input_at,
-                                      output=self.connection.output))
-
-    def undo(self, sig_map: Map):
-        sig_map.disconnect(self.connection.output)
-        if self.stash is not None:
-            sig_map.connect(self.stash)
-
-
-@attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class Disconnect(MapCommand, LossyCommand[ConnectionInfo]):
-    """
-    >>> c = Disconnect.parse(['2b.foo'])
-    >>> c.slot
-    SlotInfo(at=Coordinates(row=2, col=2), slot='foo')
-    """
-
-    slot: SlotInfo
-
-    @classmethod
-    def symbol(cls) -> str:
-        return '>/'
-
-    @classmethod
-    def name(cls) -> str:
-        return 'discon'
-
-    @classmethod
-    @functools.lru_cache(1)
-    def parser(cls) -> argparse.ArgumentParser:
-        parser = super().parser()
-        parser.add_argument('slot', type=SlotInfo.parse)
-        return parser
-
-    @classmethod
-    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls(slot=args.slot)
-
-    def do(self, sig_map: Map):
-        input_at = sig_map.disconnect(slot_info=self.slot)
-        self.set_stash(ConnectionInfo(input_at=input_at, output=self.slot))
-
-    def undo(self, sig_map: Map):
-        sig_map.connect(self.stash)
+        return cls(path=args.path)
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
@@ -393,28 +148,6 @@ class DeviceCommand(MapCommand, SerializingCommand, abc.ABC):
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class Source(DeviceCommand):
-
-    @classmethod
-    def name(cls) -> str:
-        return 'source'
-
-    def do(self, sip_map: Map):
-        pass
-
-
-@attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class Sink(DeviceCommand):
-
-    @classmethod
-    def name(cls) -> str:
-        return 'source'
-
-    def do(self, sip_map: Map):
-        pass
-
-
-@attr.s(auto_attribs=True, kw_only=True, frozen=True)
 class HistoryCommand(Command, abc.ABC):
     times: int
 
@@ -428,120 +161,6 @@ class HistoryCommand(Command, abc.ABC):
     @classmethod
     def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
         return cls(times=args.times)
-
-
-class Undo(HistoryCommand):
-
-    @classmethod
-    def symbol(cls) -> str:
-        return '<<'
-
-    @classmethod
-    def name(cls) -> str:
-        return 'undo'
-
-    def affect(self, controller):
-        for _ in range(self.times):
-            controller.undo()
-
-
-class Redo(HistoryCommand):
-
-    @classmethod
-    def symbol(cls) -> str:
-        return '>>'
-
-    @classmethod
-    def name(cls) -> str:
-        return 'redo'
-
-    def affect(self, controller):
-        for _ in range(self.times):
-            controller.redo()
-
-
-@attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class FileCommand(Command, abc.ABC):
-    path: pathlib.Path
-
-    @classmethod
-    @functools.lru_cache(1)
-    def parser(cls) -> argparse.ArgumentParser:
-        parser = super().parser()
-        parser.add_argument('path', type=pathlib.Path)
-        return parser
-
-    @classmethod
-    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls(path=args.path)
-
-
-class Save(FileCommand):
-
-    @classmethod
-    def name(cls) -> str:
-        return 'save'
-
-    def affect(self, controller):
-        with open(self.path, 'w') as f:
-            for line in controller.dump():
-                f.write(line + '\n')
-
-
-class Load(FileCommand):
-
-    @classmethod
-    def name(cls) -> str:
-        return 'load'
-
-    def affect(self, controller):
-        with open(self.path) as f:
-            controller.load(f)
-
-
-class Show(Command):
-
-    @classmethod
-    def name(cls) -> str:
-        return 'show'
-
-    def affect(self, controller: 'Controller') -> None:
-        for line in controller.dump():
-            print(line, file=controller.stdout)
-
-
-class Exit(Command):
-
-    @classmethod
-    def name(cls) -> str:
-        return 'exit'
-
-    def affect(self, controller: 'Controller') -> None:
-        controller.exit = True
-
-
-@attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class Grep(Command):
-    pattern: str
-
-    @classmethod
-    def name(cls) -> str:
-        return 'grep'
-
-    @classmethod
-    @functools.lru_cache(1)
-    def parser(cls) -> argparse.ArgumentParser:
-        parser = super().parser()
-        parser.add_argument('pattern')
-        return parser
-
-    @classmethod
-    def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
-        return cls(pattern=args.pattern)
-
-    def affect(self, controller: 'Controller') -> None:
-        for name in controller.grep(self.pattern):
-            print(name, file=controller.stdout)
 
 
 class CommandError(MapLayerError):
@@ -574,24 +193,424 @@ class BadRedo(BadHistory):
         super().__init__('Cannot redo any further')
 
 
+class CommandSet:
+
+    def __init__(self):
+        cls = type(self)
+        self._commands_by_alias = {}
+        for cmd_cls in vars(cls).values():
+            if signals.discovery.is_concrete_subclass(cmd_cls, Command):
+                self._commands_by_alias[cmd_cls.name()] = cmd_cls
+                symbol = cmd_cls.symbol()
+                if symbol is not None:
+                    self._commands_by_alias[symbol] = cmd_cls
+
+    def parse(self, alias: str, args: typing.Sequence[str]) -> Command:
+        try:
+            cmd_cls = self._commands_by_alias[alias]
+        except KeyError:
+            raise BadCommand(alias, cmds=self._commands_by_alias)
+
+        try:
+            return cmd_cls.parse(args)
+        except argparse.ArgumentError as e:
+            raise BadCommandSyntax(e.message)
+
+    @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+    class Add(MapCommand, SerializingCommand):
+        """
+        >>> c = CommandSet.Add.parse(['1a', 'signals.things.thing', 'foo=1', 'bar="baz"'])
+        >>> c.signal
+        MappedSigInfo(cls_name='signals.things.thing', state={'foo': 1, 'bar': 'baz'}, at=Coordinates(row=1, col=1))
+
+        >>> c.serialize()
+        '+ 1a signals.things.thing bar="baz" foo=1'
+        """
+
+        signal: MappedSigInfo
+
+        @classmethod
+        def symbol(cls) -> str:
+            return '+'
+
+        @classmethod
+        def name(cls) -> str:
+            return 'add'
+
+        @classmethod
+        @functools.lru_cache(1)
+        def parser(cls) -> argparse.ArgumentParser:
+            parser = super().parser()
+            parser.add_argument('at', type=Coordinates.parse)
+            parser.add_argument('sig_cls', type=str)
+            parser.add_argument('sig_state', type=SigStateItem.parse, nargs='*')
+            return parser
+
+        @classmethod
+        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
+            return cls(signal=MappedSigInfo(at=args.at,
+                                            cls_name=args.sig_cls,
+                                            state=SigState(args.sig_state)))
+
+        def serialize(self) -> str:
+            return ' '.join((
+                self.symbol(),
+                str(self.signal.at),
+                self.signal.cls_name,
+                str(self.signal.state)
+            ))
+
+        def do(self, sig_map: Map):
+            sig_map.add(self.signal)
+
+        def undo(self, sig_map: Map):
+            sig_map.rm(self.signal.at)
+
+    @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+    class Remove(MapCommand, LossyCommand[LinkedSigInfo]):
+        """
+        >>> c = CommandSet.Remove.parse(['1a'])
+        >>> c.at
+        Coordinates(row=1, col=1)
+        """
+
+        at: Coordinates
+
+        @classmethod
+        def symbol(cls) -> str:
+            return '-'
+
+        @classmethod
+        def name(cls) -> str:
+            return 'rm'
+
+        @classmethod
+        @functools.lru_cache(1)
+        def parser(cls) -> argparse.ArgumentParser:
+            parser = super().parser()
+            parser.add_argument('at', type=Coordinates.parse)
+            return parser
+
+        @classmethod
+        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
+            return cls(at=args.at)
+
+        def do(self, sig_map: Map):
+            sig_info = sig_map.rm(self.at)
+            self.set_stash(sig_info)
+
+        def undo(self, sig_map: Map):
+            sig_map.add(self.stash)
+            for connection in self.stash.links:
+                sig_map.connect(connection)
+
+    @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+    class Edit(MapCommand, LossyCommand[SigState]):
+        """
+        >>> c = CommandSet.Edit.parse(['1a', 'foo=1', 'bar="baz"'])
+        >>> c.at
+        Coordinates(row=1, col=1)
+        >>> c.state
+        {'foo': 1, 'bar': 'baz'}
+        """
+
+        at: Coordinates
+        state: SigState
+
+        @classmethod
+        def symbol(cls) -> str:
+            return '*'
+
+        @classmethod
+        def name(cls) -> str:
+            return 'ed'
+
+        @classmethod
+        @functools.lru_cache(1)
+        def parser(cls) -> argparse.ArgumentParser:
+            parser = super().parser()
+            parser.add_argument('at', type=Coordinates.parse)
+            parser.add_argument('sig_state', type=SigStateItem.parse, nargs='+', )
+            return parser
+
+        @classmethod
+        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
+            return cls(at=args.at,
+                       state=SigState(args.sig_state))
+
+        def do(self, sig_map: Map):
+            old_state = sig_map.edit(at=self.at, state=self.state)
+            self.set_stash(old_state)
+
+        def undo(self, sig_map: Map):
+            sig_map.edit(self.at, self.stash)
+
+    @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+    class Move(MapCommand):
+        """
+        >>> c = CommandSet.Move.parse(['1a', '2b'])
+        >>> c.at1
+        Coordinates(row=1, col=1)
+        >>> c.at2
+        Coordinates(row=2, col=2)
+        """
+
+        at1: Coordinates
+        at2: Coordinates
+
+        @classmethod
+        def symbol(cls) -> str:
+            return '='
+
+        @classmethod
+        def name(cls) -> str:
+            return 'mv'
+
+        @classmethod
+        @functools.lru_cache(1)
+        def parser(cls) -> argparse.ArgumentParser:
+            parser = super().parser()
+            parser.add_argument('at1', type=Coordinates.parse)
+            parser.add_argument('at2', type=Coordinates.parse)
+            return parser
+
+        @classmethod
+        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
+            return cls(at1=args.at1, at2=args.at2)
+
+        def do(self, sig_map: Map):
+            sig_map.mv(self.at1, self.at2)
+
+        def undo(self, sig_map: Map):
+            sig_map.mv(self.at2, self.at1)
+
+    @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+    class Connect(MapCommand, SerializingCommand, LossyCommand[ConnectionInfo | None]):
+        """
+        >>> c = CommandSet.Connect.parse(['1a', '2b.foo'])
+        >>> c.connection
+        ConnectionInfo(input_at=Coordinates(row=1, col=1), output=SlotInfo(at=Coordinates(row=2, col=2), slot='foo'))
+
+        >>> c.serialize()
+        '> 1a 2b.foo'
+        """
+
+        connection: ConnectionInfo
+
+        @classmethod
+        def symbol(cls) -> str:
+            return '>'
+
+        @classmethod
+        def name(cls) -> str:
+            return 'con'
+
+        @classmethod
+        @functools.lru_cache(1)
+        def parser(cls) -> argparse.ArgumentParser:
+            parser = super().parser()
+            parser.add_argument('input_at', type=Coordinates.parse)
+            parser.add_argument('output', type=SlotInfo.parse)
+            return parser
+
+        @classmethod
+        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
+            return cls(connection=ConnectionInfo(input_at=args.input_at,
+                                                 output=args.output))
+
+        def serialize(self) -> str:
+            return ' '.join((
+                self.symbol(),
+                str(self.connection.input_at),
+                str(self.connection.output)
+            ))
+
+        def do(self, sig_map: Map):
+            old_input_at = sig_map.connect(self.connection)
+            self.set_stash(None
+                           if old_input_at is None else
+                           ConnectionInfo(input_at=old_input_at,
+                                          output=self.connection.output))
+
+        def undo(self, sig_map: Map):
+            sig_map.disconnect(self.connection.output)
+            if self.stash is not None:
+                sig_map.connect(self.stash)
+
+    @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+    class Disconnect(MapCommand, LossyCommand[ConnectionInfo]):
+        """
+        >>> c = CommandSet.Disconnect.parse(['2b.foo'])
+        >>> c.slot
+        SlotInfo(at=Coordinates(row=2, col=2), slot='foo')
+        """
+
+        slot: SlotInfo
+
+        @classmethod
+        def symbol(cls) -> str:
+            return '>/'
+
+        @classmethod
+        def name(cls) -> str:
+            return 'discon'
+
+        @classmethod
+        @functools.lru_cache(1)
+        def parser(cls) -> argparse.ArgumentParser:
+            parser = super().parser()
+            parser.add_argument('slot', type=SlotInfo.parse)
+            return parser
+
+        @classmethod
+        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
+            return cls(slot=args.slot)
+
+        def do(self, sig_map: Map):
+            input_at = sig_map.disconnect(slot_info=self.slot)
+            self.set_stash(ConnectionInfo(input_at=input_at, output=self.slot))
+
+        def undo(self, sig_map: Map):
+            sig_map.connect(self.stash)
+
+    @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+    class Source(DeviceCommand):
+
+        @classmethod
+        def name(cls) -> str:
+            return 'source'
+
+        def do(self, sip_map: Map):
+            pass
+
+    @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+    class Sink(DeviceCommand):
+
+        @classmethod
+        def name(cls) -> str:
+            return 'source'
+
+        def do(self, sip_map: Map):
+            pass
+
+    class Undo(HistoryCommand):
+
+        @classmethod
+        def symbol(cls) -> str:
+            return '<<'
+
+        @classmethod
+        def name(cls) -> str:
+            return 'undo'
+
+        def affect(self, controller):
+            for _ in range(self.times):
+                controller.undo()
+
+    class Redo(HistoryCommand):
+
+        @classmethod
+        def symbol(cls) -> str:
+            return '>>'
+
+        @classmethod
+        def name(cls) -> str:
+            return 'redo'
+
+        def affect(self, controller):
+            for _ in range(self.times):
+                controller.redo()
+
+    class Save(FileCommand):
+
+        @classmethod
+        def name(cls) -> str:
+            return 'save'
+
+        def affect(self, controller):
+            with open(self.path, 'w') as f:
+                for line in controller.dump():
+                    f.write(line + '\n')
+
+    class Load(FileCommand):
+
+        @classmethod
+        def name(cls) -> str:
+            return 'load'
+
+        def affect(self, controller: 'Controller') -> None:
+            # FIXME it would be interesting to make this undo-able
+            controller.map = Map()
+            old_stdin = controller.stdin
+            with open(self.path) as f:
+                controller.stdin = f
+                try:
+                    controller.cmdloop()
+                finally:
+                    controller.stdin = old_stdin
+            controller.reset_history()
+
+    class Show(Command):
+
+        @classmethod
+        def name(cls) -> str:
+            return 'show'
+
+        def affect(self, controller: 'Controller') -> None:
+            for line in controller.dump():
+                print(line, file=controller.stdout)
+
+    class Exit(Command):
+
+        @classmethod
+        def name(cls) -> str:
+            return 'exit'
+
+        def affect(self, controller: 'Controller') -> None:
+            controller.exit = True
+
+    @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+    class Grep(Command):
+        pattern: str
+
+        @classmethod
+        def name(cls) -> str:
+            return 'grep'
+
+        @classmethod
+        @functools.lru_cache(1)
+        def parser(cls) -> argparse.ArgumentParser:
+            parser = super().parser()
+            parser.add_argument('pattern')
+            return parser
+
+        @classmethod
+        def from_parsed_args(cls, args: argparse.Namespace) -> typing.Self:
+            return cls(pattern=args.pattern)
+
+        def affect(self, controller: 'Controller') -> None:
+            for name in controller.grep(self.pattern):
+                print(name, file=controller.stdout)
+
+
 class Controller(cmd.Cmd):
 
     def __init__(self,
                  interactive: bool,
+                 command_set: CommandSet = None,
+                 map: Map = None,
                  paths: typing.Iterable[pathlib.Path] = (),
-                 completekey='tab',
                  stdin=None,
                  stdout=None):
-        super().__init__(completekey=completekey, stdin=stdin, stdout=stdout)
+        super().__init__(stdin=stdin, stdout=stdout)
         self.use_rawinput = not interactive
-        self.map = Map()
+        self.map = Map() if map is None else map
+        self.command_set = CommandSet() if command_set is None else command_set
+        self.library = signals.chain.discovery.Library(paths)
+        self.library.scan()
         self.history = collections.deque[typing.Sequence[MapCommand]](maxlen=100)
         self.history_index = None
         self.exit = False
-        if not paths:
-            paths = [pathlib.Path(signals.chain.__file__).parent]
-        self.discoverer = signals.chain.discovery.SignalDiscoverer(*paths)
-        self.discoverer.scan()
 
     @property
     def interactive(self) -> bool:
@@ -599,7 +618,6 @@ class Controller(cmd.Cmd):
 
     @property
     def prompt(self) -> str:
-        # what does this do when two instances use the same output stream?
         return 'signals: ' if self.interactive else ''
 
     def emptyline(self) -> bool:
@@ -609,9 +627,8 @@ class Controller(cmd.Cmd):
         if line == 'EOF':
             self.exit = True
         else:
-            args = shlex.split(line)
             try:
-                cmd_ = self._get_command(args)
+                cmd_ = self._parse_line(line)
                 cmd_.affect(self)
             except MapLayerError as e:
                 if self.interactive:
@@ -657,77 +674,47 @@ class Controller(cmd.Cmd):
             self._process_batch(batch)
             self.history_index = target_index
 
-    def dump(self) -> typing.Iterator[str]:
-        for signal in self.map.iter_signals():
-            yield Add(signal=signal).serialize()
-        for connection in self.map.iter_connections():
-            yield Connect(connection=connection).serialize()
-
-    def load(self, file: typing.IO[str]) -> None:
-        # FIXME this could be made to support undo
-        loader = Controller(interactive=False,
-                            paths=self.discoverer.paths,
-                            stdin=file,
-                            stdout=self.stdout)
-        loader.cmdloop()
+    def reset_history(self):
         self.history.clear()
         self.history_index = None
-        self.map = loader.map
+
+    def dump(self) -> typing.Iterator[str]:
+        for signal in self.map.iter_signals():
+            yield self.command_set.Add(signal=signal).serialize()
+        for connection in self.map.iter_connections():
+            yield self.command_set.Connect(connection=connection).serialize()
 
     def grep(self, pattern: str) -> list[str]:
-        return sorted(fnmatch.filter(self.discoverer.names, pattern))
+        return sorted(fnmatch.filter(self.library.names, pattern))
 
-    def _process_batch(self, batch: typing.Reversible[MapCommand], undo: bool = False):
+    def _process_batch(self, batch: typing.Sequence[MapCommand], undo: bool = False):
+        # This is hopefully atomic, at least in the forward direction.
         if undo:
-            for cmd in reversed(batch):
+            batch = reversed(batch)
+            for cmd in batch:
+                # If any undo operation ever raises an exception, that indicates
+                # something has gone terribly wrong, and the exception should
+                # not be caught.
                 cmd.undo(self.map)
         else:
-            for cmd in batch:
-                cmd.do(self.map)
+            for i, cmd in enumerate(batch):
+                try:
+                    cmd.do(self.map)
+                except Exception:
+                    # If the batch fails partway through, roll back to previous
+                    # state
+                    self._process_batch(batch[:i], undo=True)
+                    raise
 
-    def _get_command(self, args: list[str]) -> Command:
+    def _parse_line(self, line: str) -> Command:
+        args = shlex.split(line)
         cmd_, *args = args
-        try:
-            cmd_cls = self._cmd_aliases[cmd_]
-        except KeyError:
-            raise BadCommand(cmd_, cmds=self._cmd_names)
-
-        try:
-            return cmd_cls.parse(args)
-        except argparse.ArgumentError as e:
-            raise BadCommandSyntax(e.message)
-
-    _commands = (
-        Add,
-        Remove,
-        Edit,
-        Move,
-        Connect,
-        Disconnect,
-        Undo,
-        Redo,
-        Save,
-        Load,
-        Show,
-        Exit,
-    )
-
-    @functools.cached_property
-    def _cmd_names(self) -> dict[str, type[Command]]:
-        return {
-            cmd_cls.name(): cmd_cls
-            for cmd_cls in self._commands
-        }
-
-    @functools.cached_property
-    def _cmd_aliases(self) -> dict[str, type[Command]]:
-        return self._cmd_names | {
-            sym: cmd_cls
-            for cmd_cls in self._cmd_names.values()
-            if (sym := cmd_cls.symbol()) is not None
-        }
+        return self.command_set.parse(cmd_, args)
 
 
 if __name__ == '__main__':
-    cmd_line = Controller(interactive=True)
+    cmd_line = Controller(interactive=True,
+                          command_set=CommandSet(),
+                          map=Map(),
+                          paths=map(pathlib.Path, sys.argv[1:]))
     cmd_line.cmdloop()
