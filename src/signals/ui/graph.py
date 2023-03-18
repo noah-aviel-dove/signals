@@ -142,19 +142,19 @@ class PowerToggle(NodePartWidget):
         self.powered = powered
 
 
-class Slot(NodePartWidget):
+class Port(NodePartWidget):
     input_changed = QtCore.pyqtSignal(object, object, object)
 
-    def __init__(self, slot: str, parent=None):
-        label = NodePartText(slot[0])
+    def __init__(self, name: str, parent=None):
+        label = NodePartText(name[0])
         super().__init__(
             NodePartRect(0, 0, 10, 20),
             label,
             parent=parent
         )
-        self.slot = slot
+        self.name = name
         self.input: PlacedCable | None = None
-        self.setToolTip(self.slot)
+        self.setToolTip(self.name)
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
 
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
@@ -188,7 +188,7 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
 
         self.power_toggle = PowerToggle(self)
         self.node = Node(self)
-        self.slots = {}
+        self.ports = {}
         self.cables = []
         self.placing_cable: PlacingCable | None = None
 
@@ -197,17 +197,18 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
 
     def set_signal(self, signal: signals.map.MappedSigInfo):
         self.signal = signal
-        self.slots = {slot: Slot(slot=slot) for slot in signal.slot_names()}
-        slot_layout = hlayout()
-        slot_layout.setSpacing(self.spacing)
-        slot_layout.addItem(self.power_toggle)
-        slot_layout.setAlignment(self.power_toggle, QtCore.Qt.AlignBottom)
-        for slot in self.slots.values():
-            slot_layout.addItem(slot)
+        self.ports = {port_name: Port(name=port_name) for port_name in signal.port_names()}
+        self.node = Node(self)
+        port_layout = hlayout()
+        port_layout.setSpacing(self.spacing)
+        port_layout.addItem(self.power_toggle)
+        port_layout.setAlignment(self.power_toggle, QtCore.Qt.AlignBottom)
+        for port in self.ports.values():
+            port_layout.addItem(port)
 
         core_layout = vlayout()
         core_layout.setSpacing(self.spacing)
-        core_layout.addItem(slot_layout)
+        core_layout.addItem(port_layout)
         core_layout.addItem(self.node)
 
         self.setLayout(core_layout)
@@ -291,7 +292,7 @@ class Cable(QtWidgets.QGraphicsPolygonItem):
 
 class PlacedCable(Cable):
 
-    def __init__(self, parent: NodeContainer, target: Slot):
+    def __init__(self, parent: NodeContainer, target: Port):
         super().__init__(parent=parent)
         parent.cables.append(self)
         self.target = target
@@ -337,7 +338,7 @@ class PlacingCable(Cable):
             # Defer left-click to widget underneath.
             # FIXME this will defer to *any* widget beneath us
             #       How about when the cable is created, emit signal to disable
-            #       mouse input for all widgets besides slots?
+            #       mouse input for all widgets besides ports?
 
     def target_pos(self) -> QtCore.QPointF:
         return self.mouse_tracking
@@ -348,7 +349,7 @@ class PlacingCable(Cable):
         self.ungrabMouse()
         super().remove()
 
-    def place(self, target: Slot) -> PlacedCable:
+    def place(self, target: Port) -> PlacedCable:
         placed = PlacedCable(self.container, target)
         self.remove()
         return placed

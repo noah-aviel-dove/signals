@@ -58,22 +58,22 @@ class PatcherMap(signals.map.Map):
 
         new_input_container = self.patcher.get_square(info.input_at).content
         output_container = self.patcher.get_square(info.output.at).content
-        slot = output_container.slots[info.output.slot]
-        if slot.input is not None:
-            slot.input.remove()
-        slot.input = PlacedCable(new_input_container, slot)
+        port = output_container.ports[info.output.port]
+        if port.input is not None:
+            port.input.remove()
+        port.input = PlacedCable(new_input_container, port)
 
         self.patcher.map_changed.emit(None)
 
         return result
 
-    def disconnect(self, slot_info: signals.map.SlotInfo) -> signals.map.Coordinates:
-        result = super().disconnect(slot_info)
+    def disconnect(self, info: signals.map.PortInfo) -> signals.map.Coordinates:
+        result = super().disconnect(info)
 
-        output_container = self.patcher.get_square(slot_info.at).content
-        slot = output_container.slots[slot_info.slot]
-        slot.input.remove()
-        slot.input = None
+        output_container = self.patcher.get_square(info.at).content
+        port = output_container.ports[info.port]
+        port.input.remove()
+        port.input = None
 
         self.patcher.map_changed.emit(None)
 

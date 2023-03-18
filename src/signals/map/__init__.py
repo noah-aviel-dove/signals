@@ -9,10 +9,10 @@ import attr
 import bijection
 
 from signals.chain import (
+    PortName,
     SigStateValue,
     Signal,
     SignalName,
-    SlotName,
 )
 import signals.chain.dev
 import signals.chain.discovery
@@ -130,31 +130,31 @@ class MappedSigInfo:
         except signals.chain.discovery.BadSignal as e:
             raise BadSignal(self.at, self.cls_name, e.args[0])
 
-    def slot_names(self) -> list[signals.chain.SlotName]:
-        return self._sig_cls.slot_names()
+    def port_names(self) -> list[signals.chain.PortName]:
+        return self._sig_cls.port_names()
 
     def create(self) -> signals.chain.Signal:
         return self._sig_cls()
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class SlotInfo:
+class PortInfo:
     at: Coordinates
-    slot: SlotName
+    port: PortName
 
     @classmethod
-    def parse(cls, slot: str) -> typing.Self:
-        node_at, slot = slot.split('.')
-        return cls(at=Coordinates.parse(node_at), slot=slot)
+    def parse(cls, port: str) -> typing.Self:
+        node_at, port = port.split('.')
+        return cls(at=Coordinates.parse(node_at), port=port)
 
     def __str__(self) -> str:
-        return f'{self.at}.{self.slot}'
+        return f'{self.at}.{self.port}'
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
 class ConnectionInfo:
     input_at: Coordinates
-    output: SlotInfo
+    output: PortInfo
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
@@ -263,15 +263,15 @@ class NonEmpty(MapError):
 
 class NotConnected(MapError):
 
-    def __init__(self, slot: SlotInfo):
-        super().__init__(slot.at, f'Slot {slot.slot!r} has no input.')
+    def __init__(self, port: PortInfo):
+        super().__init__(port.at, f'Port {port.port!r} has no input.')
 
 
 class AlreadyConnected(MapError):
 
     def __init__(self, connection: ConnectionInfo):
-        slot = connection.output
-        super().__init__(slot.at, f'Slot {slot.slot!r} already has input at {connection.input_at}')
+        port = connection.output
+        super().__init__(port.at, f'Port {port.port!r} already has input at {connection.input_at}')
 
 
 class BadSignal(MapError):
@@ -288,12 +288,12 @@ class BadName(Exception, abc.ABC):
         super().__init__(*args, 'Valid options are:', ', '.join(sorted(map(repr, options))))
 
 
-class BadSlot(BadName, MapError):
+class BadPort(BadName, MapError):
 
-    def __init__(self, slot: SlotInfo, signal: Signal):
-        super().__init__(slot.at,
-                         f'{signal.cls_name} has no slot {slot.slot!r}.',
-                         options=signal.slot_names())
+    def __init__(self, port: PortInfo, signal: Signal):
+        super().__init__(port.at,
+                         f'{signal.cls_name} has no port {port.port!r}.',
+                         options=signal.port_names())
 
 
 class BadProperty(BadName, MapError):
@@ -364,34 +364,34 @@ class Map:
     def connect(self, info: ConnectionInfo) -> Coordinates | None:
         input_sig = self._find(info.input_at)
         output_sig = self._find(info.output.at)
-        old_input_slot = getattr(output_sig, info.output.slot)
-        old_input_at = self._map.inv[old_input_slot.sig] if old_input_slot else None
+        old_input_port = getattr(output_sig, info.output.port)
+        old_input_at = self._map.inv[old_input_port.sig] if old_input_port else None
         if old_input_at == info.input_at:
             raise AlreadyConnected(info)
         else:
             try:
-                # FIXME this does not raise a KeyError if the slot name is invalid
+                # FIXME this does not raise a KeyError if the part name is invalid
                 #  i think I need actual setters instead of using setattr
-                setattr(output_sig, info.output.slot, input_sig)
+                setattr(output_sig, info.output.port, input_sig)
             except KeyError:
-                raise BadSlot(info.output, output_sig)
+                raise BadPort(info.output, output_sig)
             else:
                 return old_input_at
 
-    def disconnect(self, slot_info: SlotInfo) -> Coordinates:
-        output = self._find(slot_info.at)
+    def disconnect(self, info: PortInfo) -> Coordinates:
+        output = self._find(info.at)
         try:
-            input = getattr(output, slot_info.slot).sig
+            input = getattr(output, info.port).sig
         except KeyError:
-            raise BadSlot(slot_info, output)
+            raise BadPort(info, output)
         else:
             if input is None:
-                raise NotConnected(slot_info)
+                raise NotConnected(info)
             else:
                 # this may fail if the input is outside the map
                 # e.g. if we only map a subset of the graph
                 input_at = self._map.inv[input]
-                delattr(output, slot_info.slot)
+                delattr(output, info.port)
                 return input_at
 
     def iter_signals(self) -> typing.Iterator[MappedSigInfo]:
@@ -403,9 +403,9 @@ class Map:
 
     def iter_connections(self) -> typing.Iterator[ConnectionInfo]:
         for at, sig in self._map.items():
-            for slot, input_sig in sig.inputs_by_slot.items():
+            for port, input_sig in sig.inputs_by_port.items():
                 yield ConnectionInfo(input_at=self._map.inv[input_sig],
-                                     output=SlotInfo(at=at, slot=slot))
+                                     output=PortInfo(at=at, port=port))
 
     def iter_sources(self) -> typing.Iterator[MappedDevInfo]:
         for at, sig in self._map.items():
@@ -440,14 +440,14 @@ class Map:
             raise BadProperty(at, signal, e.args[0])
 
     def _find_inputs(self, at: Coordinates, signal: Signal) -> typing.Iterator[ConnectionInfo]:
-        for slot in signal.slot_names():
-            if input := getattr(signal, slot):
-                slot_info = SlotInfo(at=at, slot=slot)
+        for port in signal.port_names():
+            if input := getattr(signal, port):
+                port_info = PortInfo(at=at, port=port)
                 input_at = self._map.inv[input]
-                yield ConnectionInfo(input_at=input_at, output=slot_info)
+                yield ConnectionInfo(input_at=input_at, output=port_info)
 
     def _find_outputs(self, at: Coordinates, signal: Signal) -> typing.Iterator[ConnectionInfo]:
-        for slot, output_sig in signal.outputs_with_slots:
+        for port, output_sig in signal.outputs_with_ports:
             output_at = self._map.inv[output_sig]
-            slot_info = SlotInfo(at=output_at, slot=slot)
-            yield ConnectionInfo(input_at=at, output=slot_info)
+            port_info = PortInfo(at=output_at, port=port)
+            yield ConnectionInfo(input_at=at, output=port_info)

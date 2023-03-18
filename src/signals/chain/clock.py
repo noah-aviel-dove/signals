@@ -6,7 +6,7 @@ from signals.chain import (
     BlockCachingSignal,
     Request,
     SignalType,
-    slot,
+    port,
 )
 
 
@@ -22,7 +22,7 @@ class Clock(BlockCachingSignal, abc.ABC):
 
 class TimeClock(Clock):
 
-    hertz = slot('hertz')
+    hertz = port('hertz')
 
     def _eval(self, request: Request) -> np.ndarray:
         hertz = self.hertz.forward(request)
@@ -30,8 +30,8 @@ class TimeClock(Clock):
 
 
 class TempoClock(Clock):
-    tclock = slot('tclock')
-    bpm = slot('bpm')
+    tclock = port('tclock')
+    bpm = port('bpm')
 
     def _eval(self, request: Request) -> np.ndarray:
         t = self.tclock.forward(request)

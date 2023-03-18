@@ -8,14 +8,14 @@ from signals.chain import (
     Request,
     SignalType,
     Vis,
-    slot,
+    port,
 )
 
 
 class Osc(BlockCachingSignal, PassThroughShape, Vis, abc.ABC):
-    sclock = slot('sclock')
-    hertz = slot('hertz')
-    phase = slot('phase')
+    sclock = port('sclock')
+    hertz = port('hertz')
+    phase = port('phase')
 
     @property
     def type(self) -> SignalType:

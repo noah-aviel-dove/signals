@@ -29,7 +29,7 @@ from signals.map import (
     MappedSigInfo,
     SigState,
     SigStateItem,
-    SlotInfo,
+    PortInfo,
 )
 
 
@@ -426,7 +426,7 @@ class CommandSet:
         """
         >>> c = CommandSet.Connect.parse(['1a', '2b.foo'])
         >>> c.connection
-        ConnectionInfo(input_at=Coordinates(row=1, col=1), output=SlotInfo(at=Coordinates(row=2, col=2), slot='foo'))
+        ConnectionInfo(input_at=Coordinates(row=1, col=1), output=PortInfo(at=Coordinates(row=2, col=2), port='foo'))
 
         >>> c.serialize()
         '> 1a 2b.foo'
@@ -447,7 +447,7 @@ class CommandSet:
         def parser(cls) -> argparse.ArgumentParser:
             parser = super().parser()
             parser.add_argument('input_at', type=Coordinates.parse)
-            parser.add_argument('output', type=SlotInfo.parse)
+            parser.add_argument('output', type=PortInfo.parse)
             return parser
 
         @classmethod
@@ -478,11 +478,11 @@ class CommandSet:
     class Disconnect(LineCommand, MapCommand, LossyCommand[ConnectionInfo]):
         """
         >>> c = CommandSet.Disconnect.parse(['2b.foo'])
-        >>> c.slot
-        SlotInfo(at=Coordinates(row=2, col=2), slot='foo')
+        >>> c.port
+        PortInfo(at=Coordinates(row=2, col=2), port='foo')
         """
 
-        slot: SlotInfo
+        port: PortInfo
 
         @classmethod
         def symbol(cls) -> str:
@@ -496,12 +496,12 @@ class CommandSet:
         @functools.lru_cache(1)
         def parser(cls) -> argparse.ArgumentParser:
             parser = super().parser()
-            parser.add_argument('slot', type=SlotInfo.parse)
+            parser.add_argument('port', type=PortInfo.parse)
             return parser
 
         def do(self, sig_map: Map):
-            input_at = sig_map.disconnect(slot_info=self.slot)
-            self.set_stash(ConnectionInfo(input_at=input_at, output=self.slot))
+            input_at = sig_map.disconnect(info=self.port)
+            self.set_stash(ConnectionInfo(input_at=input_at, output=self.port))
 
         def undo(self, sig_map: Map):
             sig_map.connect(self.stash)
@@ -568,7 +568,7 @@ class CommandSet:
             cmds = []
             sig_map = controller.map
             for connection in sig_map.iter_connections():
-                cmds.append(CommandSet.Disconnect(slot=connection.output))
+                cmds.append(CommandSet.Disconnect(port=connection.output))
             for signal in itertools.chain(sig_map.iter_sinks(),
                                           sig_map.iter_sources(),
                                           sig_map.iter_signals()):

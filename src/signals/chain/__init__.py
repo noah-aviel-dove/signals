@@ -75,24 +75,24 @@ class BlockLoc:
                                         channels=self.shape.channels))
 
 
-SlotName = str
+PortName = str
 SignalName = str
 
 
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
 class Request:
     requestor: 'Signal'
-    slot: SlotName
+    port: PortName
     loc: BlockLoc
 
 
-class _Slot(property):
+class _Port(property):
     pass
 
 
-class BoundSlot:
+class BoundPort:
 
-    def __init__(self, parent: 'Signal', name: SlotName, sig: 'Signal' = None):
+    def __init__(self, parent: 'Signal', name: PortName, sig: 'Signal' = None):
         self.name = name
         self.parent = parent
         self.sig = sig
@@ -101,7 +101,7 @@ class BoundSlot:
         return self.sig is not None
 
     def _make_request(self, loc: BlockLoc) -> Request:
-        return Request(requestor=self.parent, slot=self.name, loc=loc)
+        return Request(requestor=self.parent, port=self.name, loc=loc)
 
     def _do_request(self, request: Request) -> np.ndarray:
         block = self.sig.respond(request)
@@ -156,12 +156,12 @@ SigState = dict[str, SigStateValue]
 class Signal(abc.ABC):
 
     def __init__(self):
-        self._outputs: set[tuple[SlotName, Signal]] = set()
+        self._outputs: set[tuple[PortName, Signal]] = set()
         self._last_request: typing.Optional[Request] = None
         self.enabled: bool = True
-        self._slots = {
-            slot: BoundSlot(parent=self, name=slot)
-            for slot in self.slot_names()
+        self._ports = {
+            port: BoundPort(parent=self, name=port)
+            for port in self.port_names()
         }
 
     @property
@@ -183,11 +183,11 @@ class Signal(abc.ABC):
                 return RequestRate.FRAME
 
     @classmethod
-    def slot_names(cls) -> list[SlotName]:
+    def port_names(cls) -> list[PortName]:
         return [
             k
             for k in dir(cls)
-            if isinstance(getattr(cls, k), _Slot)
+            if isinstance(getattr(cls, k), _Port)
         ]
 
     @classmethod
@@ -201,27 +201,27 @@ class Signal(abc.ABC):
     @property
     def inputs(self) -> typing.AbstractSet['Signal']:
         return {
-            slot.value
-            for slot in self._slots
+            port.value
+            for port in self._ports
         }
 
     @property
     def outputs(self) -> typing.AbstractSet['Signal']:
         return {
             sig
-            for slot, sig in self._outputs
+            for port, sig in self._outputs
         }
 
     @property
-    def inputs_by_slot(self) -> dict[SlotName, 'Signal']:
+    def inputs_by_port(self) -> dict[PortName, 'Signal']:
         return {
-            slot.name: slot.sig
-            for slot in self._slots.values()
-            if slot
+            port.name: port.sig
+            for port in self._ports.values()
+            if port
         }
 
     @property
-    def outputs_with_slots(self) -> typing.AbstractSet[tuple[SlotName, 'Signal']]:
+    def outputs_with_ports(self) -> typing.AbstractSet[tuple[PortName, 'Signal']]:
         # FIXME
         return self._outputs
 
@@ -245,9 +245,9 @@ class Signal(abc.ABC):
     def destroy(self) -> None:
         # FIXME this is technically no longer needed thanks to the map layer,
         # but still maybe a good idea?
-        for slot_name, bound_slot in self._slots.items():
-            if bound_slot:
-                delattr(self, slot_name)
+        for port_name, bound_port in self._ports.items():
+            if bound_port:
+                delattr(self, port_name)
 
     @abc.abstractmethod
     def _eval(self, request: Request) -> np.ndarray:
@@ -283,23 +283,23 @@ class Signal(abc.ABC):
             setattr(self, k, v)
 
 
-def slot(name: SlotName) -> _Slot:
-    def fget(self: Signal) -> BoundSlot:
-        return self._slots[name]
+def port(name: PortName) -> _Port:
+    def fget(self: Signal) -> BoundPort:
+        return self._ports[name]
 
     def fdel(self: Signal) -> None:
-        slot = fget(self)
-        slot.sig._outputs.remove((name, self))
-        slot.sig = None
+        port = fget(self)
+        port.sig._outputs.remove((name, self))
+        port.sig = None
 
     def fset(self: Signal, input: Signal) -> None:
-        slot = fget(self)
-        if slot.sig is not None:
-            slot.sig._outputs.remove((name, self))
-        slot.sig = input
-        slot.sig._outputs.add((name, self))
+        port = fget(self)
+        if port.sig is not None:
+            port.sig._outputs.remove((name, self))
+        port.sig = input
+        port.sig._outputs.add((name, self))
 
-    return _Slot(fget=fget, fset=fset, fdel=fdel)
+    return _Port(fget=fget, fset=fset, fdel=fdel)
 
 
 class PassThroughShape(Signal, abc.ABC):
@@ -322,7 +322,7 @@ class BlockCachingSignal(Signal, abc.ABC):
         super().__init__()
         self._block_cache: np.ndarray | None = None
         self._block_cache_position: int | None = None
-        self._block_cache_users: set[tuple[SlotName, Signal]] | None = None
+        self._block_cache_users: set[tuple[PortName, Signal]] | None = None
 
     def _read_block_cache(self, request: Request) -> np.ndarray:
         if (
@@ -338,10 +338,10 @@ class BlockCachingSignal(Signal, abc.ABC):
         if len(self._outputs) > 1:
             self._block_cache = block
             self._block_cache_position = request.loc.position
-            self._block_cache_users = self._outputs - {(request.slot, request.requestor)}
+            self._block_cache_users = self._outputs - {(request.port, request.requestor)}
 
     def _use_block_cache(self, request: Request) -> None:
-        self._block_cache_users.remove((request.slot, request.requestor))
+        self._block_cache_users.remove((request.port, request.requestor))
         if not self._block_cache_users:
             self._block_cache = None
 

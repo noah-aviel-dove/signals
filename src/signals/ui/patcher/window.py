@@ -250,20 +250,20 @@ class Window(QtWidgets.QMainWindow):
     def _on_map_changed(self, new_container: signals.ui.graph.NodeContainer | None) -> None:
         if new_container is not None:
             # FIXME connect power toggle
-            for slot in new_container.slots.values():
-                slot.input_changed.connect(self._on_slot_changed)
+            for port in new_container.ports.values():
+                port.input_changed.connect(self._on_port_changed)
 
-    def _on_slot_changed(self,
-                         slot: signals.ui.graph.Slot,
+    def _on_port_changed(self,
+                         port: signals.ui.graph.Port,
                          new_input: signals.ui.graph.PlacingCable | None,
                          event: QtWidgets.QGraphicsSceneMouseEvent
                          ) -> None:
-        old_input = slot.input
+        old_input = port.input
         old_input_container = None if old_input is None else old_input.container
-        output = signals.map.SlotInfo(slot=slot.slot, at=slot.container.signal.at)
+        output = signals.map.PortInfo(port=port.name, at=port.container.signal.at)
         command_set = self.controller.command_set
         if new_input is None:
-            cmd_ = command_set.Disconnect(slot=output)
+            cmd_ = command_set.Disconnect(port=output)
         else:
             input = new_input.container.signal
             cmd_ = command_set.Connect(connection=signals.map.ConnectionInfo(input_at=input.at, output=output))

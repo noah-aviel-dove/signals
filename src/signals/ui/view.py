@@ -70,33 +70,33 @@ class UserSpace(QtWidgets.QGraphicsWidget):
         self.setLayout(QtWidgets.QGraphicsGridLayout())
 
     def on_cable_placed(self, cable: signals.ui.graph.PlacedCable):
-        input_node, output_slot = cable.input, cable.output
-        input_node.on_input_changed(output_slot.slot, input_node.signal)
+        input_node, output_port = cable.input, cable.output
+        input_node.on_input_changed(output_port.port, input_node.signal)
 
-        output_node = output_slot.parentItem()
+        output_node = output_port.parentItem()
         input_vertex = self._layout_lookup[input_node]
         output_vertex = self._layout_lookup[output_node]
 
         input_vertex.outputs.append(output_vertex)
-        slot_index = output_node.signal.slot_names().index(output_slot.slot)
-        assert slot_index > 0
-        output_vertex.inputs.insert(slot_index, input_vertex)
+        port_index = output_node.signal.port_names().index(output_port.port)
+        assert port_index > 0
+        output_vertex.inputs.insert(port_index, input_vertex)
 
         self.organize_nodes()
 
     def on_cable_removed(self, cable: signals.ui.graph.PlacedCable):
-        input_node, output_slot = cable.input, cable.output
-        input_node.on_input_changed(output_slot.slot, None)
+        input_node, output_port = cable.input, cable.output
+        input_node.on_input_changed(output_port.port, None)
 
-        output_node = output_slot.parentItem()
+        output_node = output_port.parentItem()
         input_vertex = self._layout_lookup[input_node]
         output_vertex = self._layout_lookup[output_node]
 
         input_vertex.outputs.remove(output_vertex)
-        slot_index = output_node.signal.slot_names.index(output_slot.slot)
-        assert slot_index > 0
+        port_index = output_node.signal.port_names.index(output_port.port)
+        assert port_index > 0
         # This caused a ValueError once when the input wasn't found.
-        assert output_vertex.inputs.pop(slot_index) is input_vertex
+        assert output_vertex.inputs.pop(port_index) is input_vertex
 
         self.organize_nodes()
 

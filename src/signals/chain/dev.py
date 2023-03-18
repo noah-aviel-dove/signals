@@ -14,7 +14,7 @@ from signals.chain import (
     Shape,
     Signal,
     SignalType,
-    slot,
+    port,
 )
 
 
@@ -84,7 +84,7 @@ class Device(Signal, abc.ABC):
 
 class SinkDevice(Device):
     # FIXME this should support buffer caching, right?
-    input = slot('input')
+    input = port('input')
 
     @property
     def type(self) -> SignalType:

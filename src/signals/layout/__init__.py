@@ -111,7 +111,7 @@ class Subgraph(set[Vertex[V]]):
 
     def untangle(self, neighbor_attr: Vertex.neighbor_attr) -> None:
         for vertex in self:
-            # FIXME consider fixed slot order?
+            # FIXME consider fixed port order?
             xs = [neighbor.x for neighbor in getattr(vertex, neighbor_attr)]
             vertex.x = sum(xs) // len(xs) if xs else np.inf
         # FIXME improve alignment
