@@ -38,8 +38,8 @@ class SoundFileBase(Signal, abc.ABC):
             self._open(mode, position)
         else:
             assert self._buffer.mode == mode, self._buffer
-            sought_postion = self._buffer.seek(position)
-            assert position == sought_postion, (position, sought_postion)
+            sought_position = self._buffer.seek(position)
+            assert position == sought_position, (position, sought_position)
 
     def _close(self) -> None:
         self._buffer.close()

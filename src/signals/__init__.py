@@ -60,12 +60,6 @@ class Project:
     def config(self) -> Config:
         return Config.load(self.path / 'config.json')
 
-    def load_graph(self) -> list[signals.chain.Signal]:
-        with open(self.path / 'graph.json', 'r') as f:
-            graph = json.load(f)
-        # FIXME messed this up while rewriting history
-        return signals.chain.Signal.load_chain(graph)
-
     @classmethod
     def default(cls) -> typing.Self:
         return cls(path=env.project_root / 'templates' / 'default')
@@ -83,6 +77,7 @@ class App(QtWidgets.QApplication):
 
     def load(self, project: Project):
         self.project = project
+        signals.ui.theme.controller.set_theme(project.config.theme)
 
 
 def app() -> typing.Optional[App]:
