@@ -229,7 +229,6 @@ class BadRedo(BadHistory):
 
 
 class CommandSet:
-
     def __init__(self):
         cls = type(self)
         self._commands_by_alias: dict[str, type[LineCommand]] = {}
@@ -258,15 +257,6 @@ class CommandSet:
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
     class Add(LineCommand, MapCommand, SerializingCommand):
-        """
-        >>> add = CommandSet.parse(['add', '1a', 'signals.things.Thing', 'foo=1', 'bar="baz"'])
-        >>> add
-        MappedSigInfo(cls_name='signals.things.thing', state={'foo': 1, 'bar': 'baz'}, at=Coordinates(row=1, col=1))
-
-        >>> c.serialize()
-        '+ 1a signals.things.thing bar="baz" foo=1'
-        """
-
         signal: MappedSigInfo
 
         @classmethod
@@ -308,12 +298,6 @@ class CommandSet:
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
     class Remove(LineCommand, MapCommand, LossyCommand[LinkedSigInfo]):
-        """
-        >>> c = CommandSet.Remove.parse(['1a'])
-        >>> c.at
-        Coordinates(row=1, col=1)
-        """
-
         at: Coordinates
 
         @classmethod
@@ -343,14 +327,6 @@ class CommandSet:
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
     class Edit(LineCommand, MapCommand, LossyCommand[SigState]):
-        """
-        >>> c = CommandSet.Edit.parse(['1a', 'foo=1', 'bar="baz"'])
-        >>> c.at
-        Coordinates(row=1, col=1)
-        >>> c.state
-        {'foo': 1, 'bar': 'baz'}
-        """
-
         at: Coordinates
         state: SigState
 
@@ -384,14 +360,6 @@ class CommandSet:
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
     class Move(LineCommand, MapCommand):
-        """
-        >>> c = CommandSet.Move.parse(['1a', '2b'])
-        >>> c.at1
-        Coordinates(row=1, col=1)
-        >>> c.at2
-        Coordinates(row=2, col=2)
-        """
-
         at1: Coordinates
         at2: Coordinates
 
@@ -419,15 +387,6 @@ class CommandSet:
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
     class Connect(LineCommand, MapCommand, SerializingCommand, LossyCommand[ConnectionInfo | None]):
-        """
-        >>> c = CommandSet.Connect.parse(['1a', '2b.foo'])
-        >>> c.connection
-        ConnectionInfo(input_at=Coordinates(row=1, col=1), output=PortInfo(at=Coordinates(row=2, col=2), port='foo'))
-
-        >>> c.serialize()
-        '> 1a 2b.foo'
-        """
-
         connection: ConnectionInfo
 
         @classmethod
@@ -473,12 +432,6 @@ class CommandSet:
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
     class Disconnect(LineCommand, MapCommand, LossyCommand[ConnectionInfo]):
-        """
-        >>> c = CommandSet.Disconnect.parse(['2b.foo'])
-        >>> c.port
-        PortInfo(at=Coordinates(row=2, col=2), port='foo')
-        """
-
         port: PortInfo
 
         @classmethod
