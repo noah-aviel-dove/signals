@@ -144,8 +144,7 @@ class RequestRate(enum.Enum):
     UNUSED_FRAME = enum.auto()
 
 
-# FIXME this should include arrays, I think
-SigStateValue = float | int | bool | str
+SigStateValue = float | int | bool | str | np.ndarray
 SigState = dict[str, SigStateValue]
 
 

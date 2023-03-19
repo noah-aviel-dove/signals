@@ -7,6 +7,7 @@ import typing
 
 import attr
 import bijection
+import numpy as np
 
 from signals.chain import (
     PortName,
@@ -99,7 +100,10 @@ class SigStateItem(typing.NamedTuple):
     @classmethod
     def parse(cls, item: str) -> typing.Self:
         k, v = item.split('=', 1)
-        return cls(k=k, v=json.loads(v))
+        v = json.loads(v)
+        if isinstance(v, list):
+            v = np.array(v)
+        return cls(k=k, v=v)
 
     def __str__(self) -> str:
         return f'{self.k}={json.dumps(self.v)}'
