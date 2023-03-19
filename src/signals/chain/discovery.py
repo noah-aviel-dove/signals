@@ -6,12 +6,15 @@ import typing
 import more_itertools
 import sounddevice as sd
 
+from signals import (
+    SignalsError,
+)
 import signals.chain
 import signals.chain.dev
 import signals.discovery
 
 
-class DiscoveryError(Exception):
+class DiscoveryError(SignalsError):
     pass
 
 

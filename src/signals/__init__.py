@@ -9,7 +9,12 @@ from PyQt5 import (
 import attr
 
 import signals.ui.theme
-import signals.chain
+
+
+class SignalsError(Exception):
+
+    def __str__(self) -> str:
+        return ' '.join((type(self).__name__, *self.args))
 
 
 class _Env:

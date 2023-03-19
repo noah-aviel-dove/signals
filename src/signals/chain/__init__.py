@@ -7,8 +7,12 @@ import attr
 import more_itertools
 import numpy as np
 
+from signals import (
+    SignalsError,
+)
 
-class ChainLayerError(Exception):
+
+class ChainLayerError(SignalsError):
     pass
 
 

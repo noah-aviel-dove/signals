@@ -9,6 +9,9 @@ import attr
 import bijection
 import numpy as np
 
+from signals import (
+    SignalsError,
+)
 from signals.chain import (
     PortName,
     SigStateValue,
@@ -241,10 +244,8 @@ class LinkedDevInfo(MappedDevInfo, LinkedSigInfo):
                    links_in=links_in)
 
 
-class MapLayerError(Exception):
-
-    def __str__(self) -> str:
-        return ' '.join((type(self).__name__, *self.args))
+class MapLayerError(SignalsError):
+    pass
 
 
 class MapError(MapLayerError):
