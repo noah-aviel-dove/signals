@@ -232,7 +232,7 @@ class CommandSet:
 
     def __init__(self):
         cls = type(self)
-        self._commands_by_alias = {}
+        self._commands_by_alias: dict[str, type[LineCommand]] = {}
         for cmd_cls in vars(cls).values():
             if signals.discovery.is_concrete_subclass(cmd_cls, LineCommand):
                 self._commands_by_alias[cmd_cls.name()] = cmd_cls
@@ -240,7 +240,7 @@ class CommandSet:
                 if symbol is not None:
                     self._commands_by_alias[symbol] = cmd_cls
 
-    def parse(self, alias: str, args: typing.Sequence[str]) -> Command:
+    def parse(self, alias: str, args: typing.Sequence[str]) -> LineCommand:
         try:
             cmd_cls = self._commands_by_alias[alias]
         except KeyError:
@@ -259,8 +259,8 @@ class CommandSet:
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
     class Add(LineCommand, MapCommand, SerializingCommand):
         """
-        >>> c = CommandSet.parse(['1a', 'signals.things.thing', 'foo=1', 'bar="baz"'])
-        >>> c.signal
+        >>> add = CommandSet.parse(['add', '1a', 'signals.things.Thing', 'foo=1', 'bar="baz"'])
+        >>> add
         MappedSigInfo(cls_name='signals.things.thing', state={'foo': 1, 'bar': 'baz'}, at=Coordinates(row=1, col=1))
 
         >>> c.serialize()
