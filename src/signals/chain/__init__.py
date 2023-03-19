@@ -61,6 +61,13 @@ class Shape(typing.NamedTuple):
         return cls(*array.shape)
 
 
+class BadShape(ChainLayerError):
+
+    def __init__(self, source: 'Signal', shape: tuple, constraint: tuple):
+        super().__init__(f'Invalid response from {source.cls_name!r}): '
+                         f'Block with shape {shape} incompatible with requested shape {constraint}')
+
+
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
 class BlockLoc:
     position: int
@@ -100,45 +107,6 @@ class _Port(property):
     pass
 
 
-class BoundPort:
-
-    def __init__(self, parent: 'Signal', name: PortName, sig: 'Signal' = None):
-        self.name = name
-        self.parent = parent
-        self.sig = sig
-
-    def __bool__(self):
-        return self.sig is not None
-
-    def _make_request(self, loc: BlockLoc) -> Request:
-        return Request(requestor=self.parent, port=self.name, loc=loc)
-
-    def _do_request(self, request: Request) -> np.ndarray:
-        block = self.sig.respond(request)
-        assert block.shape <= request.loc.shape, (block.shape, request)
-        return block
-
-    def request(self, loc: BlockLoc) -> np.ndarray:
-        if self.sig is None:
-            return empty_response()
-        else:
-            return self._do_request(self._make_request(loc))
-
-    def forward(self, request: Request, new_frames: int = None) -> np.ndarray:
-        if self.sig is None:
-            return empty_response()
-        else:
-            loc = (
-                request.loc
-                if new_frames is None else
-                request.loc.resize(new_frames)
-            )
-            return self._do_request(self._make_request(loc))
-
-    def forward_at_block_rate(self, request: Request) -> np.ndarray:
-        return self.forward(request, 1)
-
-
 class SignalType(enum.Enum):
     GENERATOR = enum.auto()
     OPERATOR = enum.auto()
@@ -159,13 +127,53 @@ SigState = dict[str, SigStateValue]
 
 
 class Signal(abc.ABC):
+    class BoundPort:
+
+        def __init__(self, parent: 'Signal', name: PortName, sig: 'Signal' = None):
+            self.name = name
+            self.parent = parent
+            self.sig = sig
+
+        def expel(self) -> None:
+            self.sig._outputs.remove((self.name, self.parent))
+            self.sig = None
+
+        def assign(self, input_: 'Signal') -> None:
+            if self.sig is not None:
+                self.expel()
+            self.sig = input_
+            self.sig._outputs.add((self.name, self.parent))
+
+        def __bool__(self):
+            return self.sig is not None
+
+        def _make_request(self, loc: BlockLoc) -> Request:
+            return Request(requestor=self.parent, port=self.name, loc=loc)
+
+        def _do_request(self, request: Request) -> np.ndarray:
+            block = self.sig.respond(request)
+            if not (block.shape <= request.loc.shape):
+                raise BadShape(self.sig, block.shape, request.loc.shape)
+            return block
+
+        def request(self, loc: BlockLoc) -> np.ndarray:
+            if self.sig is None:
+                return empty_response()
+            else:
+                return self._do_request(self._make_request(loc))
+
+        def forward(self, request: Request) -> np.ndarray:
+            return self.request(request.loc)
+
+        def forward_at_block_rate(self, request: Request) -> np.ndarray:
+            return self.request(request.loc.resize(1))
 
     def __init__(self):
         self._outputs: set[tuple[PortName, Signal]] = set()
         self._last_request: typing.Optional[Request] = None
         self.enabled: bool = True
         self._ports = {
-            port: BoundPort(parent=self, name=port)
+            port: self.BoundPort(parent=self, name=port)
             for port in self.port_names()
         }
 
@@ -263,20 +271,14 @@ class Signal(abc.ABC):
 
 
 def port(name: PortName) -> _Port:
-    def fget(self: Signal) -> BoundPort:
+    def fget(self: Signal) -> Signal.BoundPort:
         return self._ports[name]
 
     def fdel(self: Signal) -> None:
-        port = fget(self)
-        port.sig._outputs.remove((name, self))
-        port.sig = None
+        self._ports[name].expel()
 
-    def fset(self: Signal, input: Signal) -> None:
-        port = fget(self)
-        if port.sig is not None:
-            port.sig._outputs.remove((name, self))
-        port.sig = input
-        port.sig._outputs.add((name, self))
+    def fset(self: Signal, input_: Signal) -> None:
+        self._ports[name].assign(input_)
 
     return _Port(fget=fget, fset=fset, fdel=fdel)
 
@@ -331,7 +333,7 @@ class BlockCachingSignal(Signal, abc.ABC):
         try:
             result = self._read_block_cache(request)
         except NotCached:
-            result = self._get_result(request)
+            result = super().respond(request)
             self._write_block_cache(result, request)
         else:
             self._use_block_cache(request)

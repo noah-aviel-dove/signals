@@ -147,5 +147,5 @@ class SourceDevice(Device):
     def _eval(self, request: Request) -> np.ndarray:
         result = np.empty(request.loc.shape)
         block = self.q.get()
-
+        # FIXME ???
         return result
