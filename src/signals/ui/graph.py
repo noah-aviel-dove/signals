@@ -306,11 +306,6 @@ class PlacedCable(Cable):
         self.container.cables.remove(self)
         super().remove()
 
-    def unplace(self, mouse_scenepos: QtCore.QPointF) -> 'PlacingCable':
-        placing = PlacingCable(self.container, mouse_scenepos)
-        self.remove()
-        return placing
-
 
 class PlacingCable(Cable):
 
@@ -348,8 +343,3 @@ class PlacingCable(Cable):
         self.container.placing_cable = None
         self.ungrabMouse()
         super().remove()
-
-    def place(self, target: Port) -> PlacedCable:
-        placed = PlacedCable(self.container, target)
-        self.remove()
-        return placed

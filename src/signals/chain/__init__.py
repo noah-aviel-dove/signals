@@ -129,10 +129,6 @@ class BoundPort:
         return self.forward(request, 1)
 
 
-class _Control(property):
-    pass
-
-
 class SignalType(enum.Enum):
     GENERATOR = enum.auto()
     OPERATOR = enum.auto()
@@ -190,26 +186,11 @@ class Signal(abc.ABC):
             if isinstance(getattr(cls, k), _Port)
         ]
 
-    @classmethod
-    def controls(cls) -> list[str]:
-        return [
-            k
-            for k in dir(cls)
-            if isinstance(getattr(cls, k), _Control)
-        ]
-
     @property
     def inputs(self) -> typing.AbstractSet['Signal']:
         return {
             port.value
             for port in self._ports
-        }
-
-    @property
-    def outputs(self) -> typing.AbstractSet['Signal']:
-        return {
-            sig
-            for port, sig in self._outputs
         }
 
     @property
@@ -222,7 +203,6 @@ class Signal(abc.ABC):
 
     @property
     def outputs_with_ports(self) -> typing.AbstractSet[tuple[PortName, 'Signal']]:
-        # FIXME
         return self._outputs
 
     def upstream(self) -> typing.Sequence['Signal']:
@@ -265,9 +245,6 @@ class Signal(abc.ABC):
     def cls_name(self) -> SignalName:
         type_ = type(self)
         return f'{type_.__module__}.{type_.__qualname__}'
-
-    def to_json(self) -> tuple[str, dict]:
-        return self.cls_name, self.get_state()
 
     def get_state(self) -> SigState:
         return dict(
