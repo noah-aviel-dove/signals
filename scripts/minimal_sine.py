@@ -1,38 +1,51 @@
-import more_itertools
+import threading
+import time
+
 import numpy as np
 
 import signals.chain.clock
 import signals.chain.dev
+import signals.chain.discovery
 import signals.chain.fixed
 import signals.chain.osc
+import signals.map.control
 
 
 def main():
-    sinks = signals.graph.dev.SinkDevice.list()
-    for sink in sinks:
-        print(sink.info.index, sink.info.name)
-    choice = int(input('? '))
-    sink = more_itertools.one(sink for sink in sinks if sink.info.index == choice)
+    rack = signals.chain.discovery.Rack()
+    rack.scan()
+    for sink in rack.sinks():
+        print(sink)
 
-    sine = signals.graph.osc.Sine()
+    choice = input('Enter device name: ')
+    sink = signals.chain.dev.SinkDevice(rack.get_sink(choice))
+
+    sine = signals.chain.osc.Sine()
     sink.input = sine
 
-    phase = signals.graph.fixed.Fixed()
+    phase = signals.chain.fixed.Fixed()
     sine.phase = phase
 
-    sine_hertz = signals.graph.fixed.Fixed()
+    sine_hertz = signals.chain.fixed.Fixed()
     sine_hertz.value = np.array([440], ndmin=2)
     sine.hertz = sine_hertz
 
-    sample_rate = signals.graph.fixed.Fixed()
+    sample_rate = signals.chain.fixed.Fixed()
     sample_rate.value = np.array([sink.info.default_samplerate], ndmin=2)
 
-    clock = signals.graph.clock.TimeClock()
+    clock = signals.chain.clock.TimeClock()
     clock.hertz = sample_rate
 
     sine.sclock = clock
 
-    sink.play()
+    play_thread = threading.Thread(target=sink.play)
+    play_thread.start()
+    while play_thread.is_alive():
+        try:
+            time.sleep(1)
+        except KeyboardInterrupt:
+            sink.destroy()
+            break
 
 
 if __name__ == '__main__':
