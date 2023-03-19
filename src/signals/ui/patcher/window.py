@@ -14,7 +14,7 @@ import signals.ui.patcher
 import signals.ui.patcher.map
 import signals.ui.patcher.dialog
 import signals.ui.theme
-import signals.ui.view
+import signals.ui.scene
 import signals.ui.graph
 
 
@@ -67,7 +67,7 @@ class Window(QtWidgets.QMainWindow):
         self.controller.stdout = console.stdout
         self.controller.stdin = None
 
-        scene = signals.ui.view.Scene(self)
+        scene = signals.ui.scene.Scene(self)
         scene.addItem(self.patcher)
         view = QtWidgets.QGraphicsView(scene)
         self.setCentralWidget(view)
