@@ -44,7 +44,7 @@ class BadDevice(DiscoveryError):
 class BadDeviceName(BadDevice):
 
     def __init__(self, name):
-        super().__init__(f'There is not device named {name!r}')
+        super().__init__(f'There is no device named {name!r}')
 
 
 class BadDeviceChannels(BadDevice):
@@ -97,7 +97,7 @@ class Rack:
 
     def get_device(self, name: str) -> signals.chain.dev.DeviceInfo:
         return more_itertools.one((device for device in self.devices if device.name == name),
-                                  too_short=BadDevice(name))
+                                  too_short=BadDeviceName(name))
 
     def get_source(self, name: str) -> signals.chain.dev.DeviceInfo:
         device = self.get_device(name)
