@@ -13,10 +13,9 @@ import traceback
 import typing
 
 import attr
-import more_itertools
 
-import signals.chain.discovery
 import signals.chain.dev
+import signals.chain.discovery
 import signals.discovery
 from signals.map import (
     BadName,
@@ -27,9 +26,9 @@ from signals.map import (
     MapLayerError,
     MappedDevInfo,
     MappedSigInfo,
+    PortInfo,
     SigState,
     SigStateItem,
-    PortInfo,
 )
 
 
@@ -74,15 +73,11 @@ S = typing.TypeVar(name='S')
 class LossyCommand(Command, typing.Generic[S], abc.ABC):
     _stash: list[S] = attr.ib(factory=list)
 
-    @property
-    def stash(self) -> S:
-        return more_itertools.one(self._stash)
+    def pop_stash(self) -> S:
+        return self._stash.pop()
 
-    def set_stash(self, stash_val: S):
-        if self._stash:
-            assert more_itertools.one(self._stash) == stash_val
-        else:
-            self._stash.append(stash_val)
+    def push_stash(self, stash_val: S) -> None:
+        self._stash.append(stash_val)
 
 
 class SerializingCommand(Command, abc.ABC):
@@ -338,11 +333,12 @@ class CommandSet:
 
         def do(self, sig_map: Map):
             sig_info = sig_map.rm(self.at)
-            self.set_stash(sig_info)
+            self.push_stash(sig_info)
 
         def undo(self, sig_map: Map):
-            sig_map.add(self.stash)
-            for connection in self.stash.links:
+            stash = self.pop_stash()
+            sig_map.add(stash)
+            for connection in stash.links:
                 sig_map.connect(connection)
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
@@ -381,10 +377,10 @@ class CommandSet:
 
         def do(self, sig_map: Map):
             old_state = sig_map.edit(at=self.at, state=self.state)
-            self.set_stash(old_state)
+            self.push_stash(old_state)
 
         def undo(self, sig_map: Map):
-            sig_map.edit(self.at, self.stash)
+            sig_map.edit(self.at, self.pop_stash())
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
     class Move(LineCommand, MapCommand):
@@ -464,15 +460,16 @@ class CommandSet:
 
         def do(self, sig_map: Map):
             old_input_at = sig_map.connect(self.connection)
-            self.set_stash(None
-                           if old_input_at is None else
-                           ConnectionInfo(input_at=old_input_at,
-                                          output=self.connection.output))
+            self.push_stash(None
+                            if old_input_at is None else
+                            ConnectionInfo(input_at=old_input_at,
+                                           output=self.connection.output))
 
         def undo(self, sig_map: Map):
             sig_map.disconnect(self.connection.output)
-            if self.stash is not None:
-                sig_map.connect(self.stash)
+            stash = self.pop_stash()
+            if stash is not None:
+                sig_map.connect(stash)
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
     class Disconnect(LineCommand, MapCommand, LossyCommand[ConnectionInfo]):
@@ -501,10 +498,10 @@ class CommandSet:
 
         def do(self, sig_map: Map):
             input_at = sig_map.disconnect(info=self.port)
-            self.set_stash(ConnectionInfo(input_at=input_at, output=self.port))
+            self.push_stash(ConnectionInfo(input_at=input_at, output=self.port))
 
         def undo(self, sig_map: Map):
-            sig_map.connect(self.stash)
+            sig_map.connect(self.pop_stash())
 
     class Source(DeviceAssociationCommand):
 
