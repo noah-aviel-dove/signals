@@ -98,15 +98,17 @@ class SinkDevice(Device):
             if status:
                 self.log(status)
             shape = Shape(channels=self.channels, frames=frames)
-            block = self.input.request(BlockLoc(position=position, shape=shape))
+            loc = BlockLoc(position=position, shape=shape, rate=stream.samplerate)
+            block = self.input.request(loc)
             outdata[:] = block
             position += frames
 
         self._stopper = threading.Event()
 
-        with sd.OutputStream(device=self.info.index,
-                             callback=callback,
-                             finished_callback=self._stopper.set):
+        stream = sd.OutputStream(device=self.info.index,
+                                 callback=callback,
+                                 finished_callback=self._stopper.set)
+        with stream:
             self._stopper.wait()
 
     def _eval(self, request: Request):

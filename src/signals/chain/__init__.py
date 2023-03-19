@@ -64,11 +64,16 @@ class Shape(typing.NamedTuple):
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
 class BlockLoc:
     position: int
+    rate: int
     shape: Shape
 
     @property
     def end_position(self) -> int:
         return self.position + self.shape[0]
+
+    @property
+    def timestamp(self) -> float:
+        return self.position / self.rate
 
     def resize(self, new_frames: int) -> typing.Self:
         if new_frames == self.shape.frames:
@@ -76,7 +81,8 @@ class BlockLoc:
         else:
             return BlockLoc(position=self.position,
                             shape=Shape(frames=new_frames,
-                                        channels=self.shape.channels))
+                                        channels=self.shape.channels),
+                            rate=self.rate)
 
 
 PortName = str
