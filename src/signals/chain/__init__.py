@@ -187,13 +187,6 @@ class Signal(abc.ABC):
         ]
 
     @property
-    def inputs(self) -> typing.AbstractSet['Signal']:
-        return {
-            port.value
-            for port in self._ports
-        }
-
-    @property
     def inputs_by_port(self) -> dict[PortName, 'Signal']:
         return {
             port.name: port.sig
@@ -210,7 +203,7 @@ class Signal(abc.ABC):
 
     def _upstream(self, visited: set['Signal']) -> collections.deque['Signal']:
         result = collections.deque()
-        for input in self.inputs:
+        for input in self.inputs_by_port.values():
             if input not in visited:
                 result.extend(input._upstream(visited))
                 visited.update(result)
@@ -283,7 +276,10 @@ class PassThroughShape(Signal, abc.ABC):
 
     @property
     def channels(self) -> int:
-        input_shape = {input.channels for input in self.inputs}
+        input_shape = {
+            input.channels
+            for input in self.inputs_by_port.values()
+        }
         if len(input_shape) > 1:
             input_shape.discard(1)
         return more_itertools.one(input_shape)
