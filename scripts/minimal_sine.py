@@ -3,7 +3,6 @@ import time
 
 import numpy as np
 
-import signals.chain.clock
 import signals.chain.dev
 import signals.chain.discovery
 import signals.chain.fixed
@@ -29,14 +28,6 @@ def main():
     sine_hertz = signals.chain.fixed.Fixed()
     sine_hertz.value = np.array([440], ndmin=2)
     sine.hertz = sine_hertz
-
-    sample_rate = signals.chain.fixed.Fixed()
-    sample_rate.value = np.array([sink.info.default_samplerate], ndmin=2)
-
-    clock = signals.chain.clock.TimeClock()
-    clock.hertz = sample_rate
-
-    sine.sclock = clock
 
     play_thread = threading.Thread(target=sink.play)
     play_thread.start()

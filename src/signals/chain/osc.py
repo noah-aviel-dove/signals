@@ -15,7 +15,6 @@ from signals.chain import (
 
 
 class Osc(BlockCachingSignal, PassThroughShape, Vis, abc.ABC):
-    sclock = port('sclock')
     hertz = port('hertz')
     phase = port('phase')
 
@@ -24,10 +23,13 @@ class Osc(BlockCachingSignal, PassThroughShape, Vis, abc.ABC):
         return SignalType.GENERATOR
 
     def _eval(self, request: Request) -> np.ndarray:
-        t = self.sclock.forward(request)
+        # phase: cycles
         phase = self.phase.forward_at_block_rate(request)
+        # hertz: cycles/second
         hertz = self.hertz.forward_at_block_rate(request)
-        return self._osc(phase + hertz * t)
+        # frames / (frames / second) * (cycles / second) + cycles
+        cycles = request.loc.frame_range / request.loc.rate * hertz + phase
+        return self._osc(cycles)
 
     @abc.abstractmethod
     def _osc(self, t: np.ndarray) -> np.ndarray:

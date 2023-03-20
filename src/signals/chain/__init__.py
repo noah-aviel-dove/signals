@@ -1,6 +1,7 @@
 import abc
 import collections
 import enum
+import functools
 import typing
 
 import attr
@@ -82,14 +83,18 @@ class BlockLoc:
     def timestamp(self) -> float:
         return self.position / self.rate
 
+    @functools.cached_property
+    def frame_range(self) -> np.ndarray:
+        frames = np.arange(self.position, self.end_position).reshape(-1, 1)
+        frames.flags.writeable = False
+        return frames
+
     def resize(self, new_frames: int) -> typing.Self:
         if new_frames == self.shape.frames:
             return self
         else:
-            return BlockLoc(position=self.position,
-                            shape=Shape(frames=new_frames,
-                                        channels=self.shape.channels),
-                            rate=self.rate)
+            return attr.evolve(self, shape=Shape(frames=new_frames,
+                                                 channels=self.shape.channels))
 
 
 PortName = str
