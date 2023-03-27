@@ -1,12 +1,14 @@
 import abc
 import pathlib
 import pkgutil
+import types
 import typing
 
 import more_itertools
 import sounddevice as sd
 
 from signals import (
+    SignalFlags,
     SignalsError,
 )
 import signals.chain
@@ -73,11 +75,12 @@ class Library:
         self.paths.update(paths)
         self.names = []
 
-    def _filter(self, name: str, val: typing.Any) -> bool:
-        # FIXME Might need to refactor the Signal hierarchy to make devices a stem group.
+    def _filter(self, name: str, val: typing.Any, module: types.ModuleType) -> bool:
         return (
-            signals.discovery.is_concrete_subclass(val, signals.chain.Signal)
-            and not issubclass(val, signals.chain.dev.Device)
+            getattr(val, '__module__', None) == module.__name__
+            and signals.discovery.is_concrete_subclass(val, signals.chain.Signal)
+            # It would be nice to have a subclass for the non-device crown group
+            and not (val.flags() & SignalFlags.DEVICE)
         )
 
     def scan(self) -> None:
@@ -86,7 +89,7 @@ class Library:
             for path in self.paths
             for module in signals.discovery.iter_modules(path)
             for k, v in signals.discovery.iter_objects(module)
-            if self._filter(k, v)
+            if self._filter(k, v, module)
         ]
 
 

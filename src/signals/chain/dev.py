@@ -8,12 +8,16 @@ import attr as attr
 import numpy as np
 import sounddevice as sd
 
+from signals import (
+    SignalFlags,
+)
 from signals.chain import (
     BlockLoc,
+    Emitter,
+    Receiver,
     Request,
     Shape,
     Signal,
-    SignalType,
     port,
 )
 
@@ -40,12 +44,14 @@ class DeviceInfo:
         return self.max_output_channels > 0
 
     def __str__(self) -> str:
+        latency_low = self._format_latency(self.default_low_input_latency, self.default_low_output_latency)
+        latency_high = self._format_latency(self.default_high_input_latency, self.default_low_output_latency)
         return '\n'.join((
             f'{self.index:<3} {self.name} ({self.hostapi})',
             f'\tMaximum supported channels (I/O): {self.max_input_channels}/{self.max_output_channels}',
             f'\tDefault samplerate: {self.default_samplerate}',
-            f'\tDefault interactive latency{self._format_latency(self.default_low_input_latency, self.default_low_output_latency)}',
-            f'\tDefault non-interactive latency{self._format_latency(self.default_high_input_latency, self.default_low_output_latency)}'
+            f'\tDefault interactive latency{latency_low}',
+            f'\tDefault non-interactive latency{latency_high}'
         ))
 
     def _format_latency(self, input: float, output: float) -> str:
@@ -82,13 +88,15 @@ class Device(Signal, abc.ABC):
             self._stopper.set()
 
 
-class SinkDevice(Device):
-    # FIXME this should support buffer caching, right?
+class SinkDevice(Device, Receiver):
+    # FIXME this should support recording.
+    #  Give `Recorder` an ABC that allows for more flexible buffer population
+    #  (so it doesn't have to be written to during `respond`).
     input = port('input')
 
-    @property
-    def type(self) -> SignalType:
-        return SignalType.PLAYBACK
+    @classmethod
+    def flags(cls) -> SignalFlags:
+        return super().flags() | SignalFlags.SINK_DEVICE
 
     def play(self):
         position = 0
@@ -111,21 +119,16 @@ class SinkDevice(Device):
         with stream:
             self._stopper.wait()
 
-    def _eval(self, request: Request):
-        # FIXME refactor Signal hierarchy so that devices do not have to inherit
-        # all the stuff in the current base class
-        assert False, self
 
-
-class SourceDevice(Device):
+class SourceDevice(Device, Emitter):
 
     def __init__(self, info: DeviceInfo):
         super().__init__(info)
         self.q = queue.Queue()
 
-    @property
-    def type(self) -> SignalType:
-        return SignalType.GENERATOR
+    @classmethod
+    def flags(cls) -> SignalFlags:
+        return super().flags() | SignalFlags.SOURCE_DEVICE
 
     def _callback(self, indata: np.ndarray, frames: int, time: typing.Any, status: sd.CallbackFlags) -> None:
         if status:
@@ -142,6 +145,7 @@ class SourceDevice(Device):
         with sd.InputStream(device=self.info.index,
                             callback=self._callback,
                             finished_callback=self._stopper.set):
+            # FIXME need to specify block size... somehow
             self._stopper.wait()
 
     def _eval(self, request: Request) -> np.ndarray:

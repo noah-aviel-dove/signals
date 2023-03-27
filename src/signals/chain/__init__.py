@@ -9,6 +9,9 @@ import more_itertools
 import numpy as np
 
 from signals import (
+    PortName,
+    SignalFlags,
+    SignalName,
     SignalsError,
 )
 
@@ -97,27 +100,15 @@ class BlockLoc:
                                                  channels=self.shape.channels))
 
 
-PortName = str
-SignalName = str
-
-
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
 class Request:
-    requestor: 'Signal'
+    requestor: 'Receiver'
     port: PortName
     loc: BlockLoc
 
 
 class _Port(property):
     pass
-
-
-class SignalType(enum.Enum):
-    GENERATOR = enum.auto()
-    OPERATOR = enum.auto()
-    PLAYBACK = enum.auto()
-    TABLE = enum.auto()
-    VALUE = enum.auto()
 
 
 class RequestRate(enum.Enum):
@@ -132,12 +123,86 @@ SigState = dict[str, SigStateValue]
 
 
 class Signal(abc.ABC):
+
+    @classmethod
+    @abc.abstractmethod
+    def flags(cls) -> SignalFlags:
+        return SignalFlags(0)
+
+    @property
+    def cls_name(self) -> SignalName:
+        type_ = type(self)
+        return f'{type_.__module__}.{type_.__qualname__}'
+
+    def get_state(self) -> SigState:
+        return {}
+
+    def set_state(self, state: SigState) -> None:
+        # FIXME need to validate values
+        ks = state.keys() - self.get_state().keys()
+        if ks:
+            raise KeyError(*ks)
+        for k, v in state.items():
+            setattr(self, k, v)
+
+    def destroy(self) -> None:
+        pass
+
+
+class Emitter(Signal, abc.ABC):
+
+    def __init__(self):
+        super().__init__()
+        self._outputs: set[tuple[PortName, Receiver]] = set()
+        self._last_request: typing.Optional[Request] = None
+        self.enabled = True
+
+    def get_state(self) -> SigState:
+        state = super().get_state()
+        state['enabled'] = self.enabled
+        return state
+
+    @property
+    def outputs_with_ports(self) -> typing.AbstractSet[tuple[PortName, 'Receiver']]:
+        return self._outputs
+
+    @property
+    def rate(self) -> RequestRate:
+        if self._last_request is None:
+            return RequestRate.UNKNOWN
+        else:
+            frames = self._last_request.loc.shape.frames
+            if frames <= 0:
+                return RequestRate.UNKNOWN
+            elif frames == 1:
+                return RequestRate.BLOCK
+            else:
+                return RequestRate.FRAME
+
+    @property
+    @abc.abstractmethod
+    def channels(self) -> int:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def _eval(self, request: Request) -> np.ndarray:
+        raise NotImplementedError
+
+    def _get_result(self, request: Request) -> np.ndarray:
+        return self._eval(request) if self.enabled else 0
+
+    def respond(self, request: Request) -> np.ndarray:
+        self._last_request = request
+        return self._get_result(request)
+
+
+class Receiver(Signal, abc.ABC):
     class BoundPort:
 
-        def __init__(self, parent: 'Signal', name: PortName, sig: 'Signal' = None):
+        def __init__(self, parent: 'Receiver', name: PortName, emitter: 'Emitter' = None):
             self.name = name
             self.parent = parent
-            self.sig = sig
+            self.sig = emitter
 
         def expel(self) -> None:
             self.sig._outputs.remove((self.name, self.parent))
@@ -174,31 +239,11 @@ class Signal(abc.ABC):
             return self.request(request.loc.resize(1))
 
     def __init__(self):
-        self._outputs: set[tuple[PortName, Signal]] = set()
-        self._last_request: typing.Optional[Request] = None
-        self.enabled: bool = True
+        super().__init__()
         self._ports = {
             port: self.BoundPort(parent=self, name=port)
             for port in self.port_names()
         }
-
-    @property
-    @abc.abstractmethod
-    def type(self) -> SignalType:
-        raise NotImplementedError
-
-    @property
-    def rate(self) -> RequestRate:
-        if self._last_request is None:
-            return RequestRate.UNKNOWN
-        else:
-            frames = self._last_request.loc.shape.frames
-            if frames <= 0:
-                return RequestRate.UNKNOWN
-            elif frames == 1:
-                return RequestRate.BLOCK
-            else:
-                return RequestRate.FRAME
 
     @classmethod
     def port_names(cls) -> list[PortName]:
@@ -209,33 +254,25 @@ class Signal(abc.ABC):
         ]
 
     @property
-    def inputs_by_port(self) -> dict[PortName, 'Signal']:
+    def inputs_by_port(self) -> dict[PortName, 'Emitter']:
         return {
             port.name: port.sig
             for port in self._ports.values()
             if port
         }
 
-    @property
-    def outputs_with_ports(self) -> typing.AbstractSet[tuple[PortName, 'Signal']]:
-        return self._outputs
-
-    def upstream(self) -> typing.Sequence['Signal']:
+    def upstream(self) -> typing.Sequence['Emitter']:
         return self._upstream(set())
 
-    def _upstream(self, visited: set['Signal']) -> collections.deque['Signal']:
+    def _upstream(self, visited: set['Emitter']) -> collections.deque['Emitter']:
         result = collections.deque()
         for input in self.inputs_by_port.values():
-            if input not in visited:
+            if input not in visited and isinstance(input, Receiver):
                 result.extend(input._upstream(visited))
                 visited.update(result)
         assert self not in visited, 'Cycle detected'
         result.append(self)
         return result
-
-    def respond(self, request: Request) -> np.ndarray:
-        self._last_request = request
-        return self._get_result(request)
 
     def destroy(self) -> None:
         # FIXME this is technically no longer needed thanks to the map layer,
@@ -244,51 +281,21 @@ class Signal(abc.ABC):
             if bound_port:
                 delattr(self, port_name)
 
-    @abc.abstractmethod
-    def _eval(self, request: Request) -> np.ndarray:
-        raise NotImplementedError
-
-    def _get_result(self, request: Request) -> np.ndarray:
-        return self._eval(request) if self.enabled else 0
-
-    @property
-    @abc.abstractmethod
-    def channels(self) -> int:
-        raise NotImplementedError
-
-    @property
-    def cls_name(self) -> SignalName:
-        type_ = type(self)
-        return f'{type_.__module__}.{type_.__qualname__}'
-
-    def get_state(self) -> SigState:
-        return dict(
-            enabled=self.enabled
-        )
-
-    def set_state(self, state: SigState) -> None:
-        # FIXME need to validate values
-        ks = state.keys() - self.get_state().keys()
-        if ks:
-            raise KeyError(*ks)
-        for k, v in state.items():
-            setattr(self, k, v)
-
 
 def port(name: PortName) -> _Port:
-    def fget(self: Signal) -> Signal.BoundPort:
+    def fget(self: Receiver) -> Receiver.BoundPort:
         return self._ports[name]
 
-    def fdel(self: Signal) -> None:
+    def fdel(self: Receiver) -> None:
         self._ports[name].expel()
 
-    def fset(self: Signal, input_: Signal) -> None:
+    def fset(self: Receiver, input_: Emitter) -> None:
         self._ports[name].assign(input_)
 
     return _Port(fget=fget, fset=fset, fdel=fdel)
 
 
-class PassThroughShape(Signal, abc.ABC):
+class PassThroughShape(Receiver, Emitter, abc.ABC):
 
     @property
     def channels(self) -> int:
@@ -305,13 +312,13 @@ class NotCached(RuntimeError):
     pass
 
 
-class BlockCachingSignal(Signal, abc.ABC):
+class BlockCachingEmitter(Emitter, abc.ABC):
 
     def __init__(self):
         super().__init__()
         self._block_cache: np.ndarray | None = None
         self._block_cache_position: int | None = None
-        self._block_cache_users: set[tuple[PortName, Signal]] | None = None
+        self._block_cache_users: set[tuple[PortName, Receiver]] | None = None
 
     def _read_block_cache(self, request: Request) -> np.ndarray:
         if (
@@ -345,9 +352,16 @@ class BlockCachingSignal(Signal, abc.ABC):
         return result
 
 
-class Event(Signal, abc.ABC):
-    pass
+if False:
+    class Epoch(Signal, abc.ABC):
+
+        @classmethod
+        def flags(cls) -> SignalFlags:
+            return super().flags() | SignalFlags.EPOCH
 
 
-class Vis(Signal, abc.ABC):
-    pass
+    class Vis(Signal, abc.ABC):
+
+        @classmethod
+        def flags(cls) -> SignalFlags:
+            return super().flags() | SignalFlags.VIS

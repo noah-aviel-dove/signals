@@ -1,3 +1,4 @@
+import enum
 import functools
 import json
 import pathlib
@@ -11,10 +12,47 @@ import attr
 import signals.ui.theme
 
 
+PortName = str
+SignalName = str
+
+
 class SignalsError(Exception):
 
     def __str__(self) -> str:
         return ' '.join((type(self).__name__, *self.args))
+
+
+class SignalFlags(enum.Flag):
+    # It is permissible for this signal to form cycles.
+    CYCLIC = enum.auto()
+
+    SINK_DEVICE = enum.auto()
+
+    SOURCE_DEVICE = enum.auto()
+
+    DEVICE = SINK_DEVICE | SOURCE_DEVICE
+
+    # Generates audio from non-audio input.
+    GENERATOR = enum.auto()
+
+    # Generates audio from audio.
+    EFFECT = enum.auto()
+
+    AUDIO = GENERATOR | EFFECT | SOURCE_DEVICE
+
+    # Can record its output.
+    RECORDER = enum.auto()
+
+    # Has a Predetermined maximum duration.
+    EPOCH = enum.auto()
+
+    # Supports visualization
+    VIS = enum.auto()
+
+    @classmethod
+    def _missing_(cls, value: object) -> None:
+        # FIXME validate implications and conflicts
+        return super()._missing_(value)
 
 
 class _Env:

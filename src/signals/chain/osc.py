@@ -4,23 +4,24 @@ import typing
 import attr
 import numpy as np
 
+from signals import (
+    SignalFlags,
+)
 from signals.chain import (
-    BlockCachingSignal,
+    BlockCachingEmitter,
     PassThroughShape,
     Request,
-    SignalType,
-    Vis,
     port,
 )
 
 
-class Osc(BlockCachingSignal, PassThroughShape, Vis, abc.ABC):
+class Osc(BlockCachingEmitter, PassThroughShape, abc.ABC):
     hertz = port('hertz')
     phase = port('phase')
 
-    @property
-    def type(self) -> SignalType:
-        return SignalType.GENERATOR
+    @classmethod
+    def flags(cls) -> SignalFlags:
+        return super().flags() | SignalFlags.GENERATOR
 
     def _eval(self, request: Request) -> np.ndarray:
         # phase: cycles

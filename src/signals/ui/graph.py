@@ -7,10 +7,10 @@ from PyQt5 import (
     QtWidgets,
 )
 
-import signals.chain
-import signals.chain.dev
-import signals.chain.files
-import signals.layout
+from signals import (
+    PortName,
+    SignalFlags,
+)
 import signals.map
 import signals.ui
 import signals.ui.geometry
@@ -102,16 +102,24 @@ class NodePartWidget(QtWidgets.QGraphicsWidget):
 
 class Node(NodePartWidget):
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: 'NodeContainer'):
+        # FIXME this should be split into a new class hierarchy for different signal interfaces
+        max_radius = 40
+        if parent.signal.flags & SignalFlags.SINK_DEVICE:
+            n_radii = 4
+            buttons = QtCore.Qt.MouseButton.NoButton
+        else:
+            n_radii = 1
+            buttons = QtCore.Qt.MouseButton.LeftButton
+        radii = (max_radius - 10*i for i in range(n_radii))
         super().__init__(
-            NodePartEllipse(0, 0, 40, 40),
+            *(
+                NodePartEllipse((max_radius - radius)/2, (max_radius - radius)/2, radius, radius)
+                for radius in radii
+            ),
             parent=parent
         )
-        # FIXME this should be split into a new class hierarchy for different signal interfaces
-        if isinstance(self.container, signals.chain.dev.SinkDevice):
-            self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.NoButton)
-        else:
-            self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
+        self.setAcceptedMouseButtons(buttons)
 
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         cable = self.scene().mouseGrabberItem()
@@ -184,13 +192,13 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
                  signal: signals.map.MappedSigInfo,
                  parent: typing.Optional[QtWidgets.QGraphicsItem] = None):
         super().__init__(parent=parent)
-        self.signal = signal
 
-        self.power_toggle = PowerToggle(self)
-        self.node = Node(self)
-        self.ports = {}
-        self.cables = []
+        self.node: Node | None = None
         self.placing_cable: PlacingCable | None = None
+        self.placed_cables: set[PlacedCable] = set()
+        self.power_toggle: PowerToggle | None = None
+        self.ports: dict[PortName, Port] = {}
+        self.signal: signals.map.MappedSigInfo | None = None
 
         self.set_signal(signal)
         self.setZValue(-1)
@@ -201,8 +209,13 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
         self.node = Node(self)
         port_layout = hlayout()
         port_layout.setSpacing(self.spacing)
-        port_layout.addItem(self.power_toggle)
-        port_layout.setAlignment(self.power_toggle, QtCore.Qt.AlignBottom)
+        if signal.flags & SignalFlags.SINK_DEVICE:
+            # FIXME add play button
+            pass
+        else:
+            self.power_toggle = PowerToggle(self)
+            port_layout.addItem(self.power_toggle)
+            port_layout.setAlignment(self.power_toggle, QtCore.Qt.AlignBottom)
         for port in self.ports.values():
             port_layout.addItem(port)
 
@@ -228,6 +241,7 @@ class RateIndicator(QtWidgets.QGraphicsRectItem):
               option: QtWidgets.QStyleOptionGraphicsItem,
               widget: typing.Optional[QtWidgets.QWidget] = ...
               ) -> None:
+        # FIXME move RequestRate to __init__.py if/when this gets implemented
         rates = signals.chain.RequestRate
         rate = typing.cast(Node, self.parentItem()).signal.rate
         # FIXME add rate indicators
@@ -294,7 +308,7 @@ class PlacedCable(Cable):
 
     def __init__(self, parent: NodeContainer, target: Port):
         super().__init__(parent=parent)
-        parent.cables.append(self)
+        parent.placed_cables.add(self)
         self.target = target
         self._update_points()
 
@@ -303,7 +317,7 @@ class PlacedCable(Cable):
         return self.mapFromItem(self.target, QtCore.QPointF(r.center().x(), r.top()))
 
     def remove(self) -> None:
-        self.container.cables.remove(self)
+        self.container.placed_cables.remove(self)
         super().remove()
 
 
@@ -311,6 +325,7 @@ class PlacingCable(Cable):
 
     def __init__(self, parent: NodeContainer, mouse_scenepos: QtCore.QPointF):
         super().__init__(parent=parent)
+        assert not (parent.signal.flags & SignalFlags.SINK_DEVICE), parent.signal
         assert parent.placing_cable is None, parent
         parent.placing_cable = self
         self.mouse_tracking = self.mapFromScene(mouse_scenepos)

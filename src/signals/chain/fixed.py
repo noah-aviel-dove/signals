@@ -1,24 +1,24 @@
 import numpy as np
 
+from signals import (
+    SignalFlags,
+)
 from signals.chain import (
-    SignalType,
+    Emitter,
+    Request,
     Shape,
 )
-from signals.chain import (
-    Signal,
-    Request,
-)
 
 
-class Fixed(Signal):
+class Fixed(Emitter):
 
     def __init__(self):
         super().__init__()
         self.value = np.zeros((1, 1))
 
-    @property
-    def type(self) -> SignalType:
-        return SignalType.VALUE
+    @classmethod
+    def flags(cls) -> SignalFlags:
+        return super().flags()
 
     @property
     def channels(self) -> int:

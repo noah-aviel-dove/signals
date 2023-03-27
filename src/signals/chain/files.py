@@ -1,20 +1,19 @@
+import abc
 import functools
 import pathlib
-import abc
 import tempfile
 
+import numpy as np
 import soundfile as sf
 
-import numpy as np
-
+from signals import (
+    SignalFlags,
+)
 from signals.chain import (
-    Event,
+    BlockCachingEmitter,
+    Request,
     SigState,
     Signal,
-    BlockCachingSignal,
-    SignalType,
-    Request,
-    Vis,
 )
 
 
@@ -65,11 +64,15 @@ class SoundFileWriter(SoundFileBase, abc.ABC):
         self._buffer.write(block)
 
 
-class BufferCachingSignal(SoundFileReader, SoundFileWriter, BlockCachingSignal, abc.ABC):
+class Recorder(SoundFileReader, SoundFileWriter, BlockCachingEmitter, abc.ABC):
 
     def __init__(self):
         super().__init__()
         self.recording = False
+
+    @classmethod
+    def flags(cls) -> SignalFlags:
+        return super().flags() | SignalFlags.RECORDER
 
     @functools.cached_property
     def _sample_path(self) -> pathlib.Path:
@@ -89,15 +92,15 @@ class BufferCachingSignal(SoundFileReader, SoundFileWriter, BlockCachingSignal, 
         return result
 
 
-class SamplePlayer(SoundFileReader, BlockCachingSignal, Vis, Event):
+class SamplePlayer(SoundFileReader, BlockCachingEmitter):
 
     def __init__(self):
         super().__init__()
         self.path = None
 
-    @property
-    def type(self) -> SignalType:
-        return SignalType.GENERATOR
+    @classmethod
+    def flags(cls) -> SignalFlags:
+        return super().flags() | SignalFlags.GENERATOR
 
     @property
     def _sample_path(self) -> pathlib.Path:
@@ -111,7 +114,6 @@ class SamplePlayer(SoundFileReader, BlockCachingSignal, Vis, Event):
         return self._read(request)
 
     def get_state(self) -> SigState:
-        return dict(
-            super().get_state(),
-            path=self.path
-        )
+        state = super().get_state()
+        state['path'] = self.path
+        return state

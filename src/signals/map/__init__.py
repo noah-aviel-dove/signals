@@ -1,4 +1,5 @@
 import abc
+import copy
 import functools
 import json
 import re
@@ -10,13 +11,16 @@ import bijection
 import numpy as np
 
 from signals import (
+    PortName,
+    SignalFlags,
+    SignalName,
     SignalsError,
 )
 from signals.chain import (
-    PortName,
+    Emitter,
+    Receiver,
     SigStateValue,
     Signal,
-    SignalName,
 )
 import signals.chain.dev
 import signals.chain.discovery
@@ -138,7 +142,14 @@ class MappedSigInfo:
             raise BadSignal(self.at, self.cls_name, e.args[0])
 
     def port_names(self) -> list[signals.chain.PortName]:
-        return self._sig_cls.port_names()
+        if issubclass(self._sig_cls, Receiver):
+            return self._sig_cls.port_names()
+        else:
+            return []
+
+    @property
+    def flags(self) -> SignalFlags:
+        return self._sig_cls.flags()
 
     def create(self) -> signals.chain.Signal:
         return self._sig_cls()
@@ -295,7 +306,7 @@ class BadName(Exception, abc.ABC):
 
 class BadPort(BadName, MapError):
 
-    def __init__(self, port: PortInfo, signal: Signal):
+    def __init__(self, port: PortInfo, signal: Receiver):
         super().__init__(port.at,
                          f'{signal.cls_name} has no port {port.port!r}.',
                          options=signal.port_names())
@@ -309,17 +320,20 @@ class BadProperty(BadName, MapError):
                          options=signal.get_state().keys())
 
 
+class BadReceiver(MapError):
+
+    def __init__(self, at: Coordinates, signal: Signal):
+        super().__init__(at, f'{signal.cls_name!r} is not a Receiver')
+
+
 class Map:
 
     def __init__(self):
         self._map = bijection.Bijection[Coordinates, Signal]()
 
-    def new(self) -> typing.Self:
-        return type(self)()
-
     def add(self, info: MappedSigInfo):
         sig = info.create()
-        self._set_state(info.at, sig, info.state)
+        self._apply_state(info.at, sig, info.state)
         # This is a weird smell. Perhaps we could populate a complete state when
         # the command is created?
         info.state.update(sig.get_state())
@@ -327,10 +341,29 @@ class Map:
             raise NonEmpty(info.at)
 
     def rm(self, at: Coordinates) -> LinkedSigInfo:
-        sig = self._pop(at)
-        inputs = list(self._find_inputs(at, sig))
-        outputs = list(self._find_outputs(at, sig))
-        state = SigState(sig.get_state())
+        sig = self._find(at)
+
+        state = SigState.from_signal(sig)
+        inputs = []
+        outputs = []
+        if isinstance(sig, Emitter):
+            for port, output_sig in tuple(sig.outputs_with_ports):
+                output_at = self._map.inv[output_sig]
+                port_info = PortInfo(at=output_at, port=port)
+                self.disconnect(port_info)
+                con_info = ConnectionInfo(input_at=at, output=port_info)
+                outputs.append(con_info)
+        if isinstance(sig, Receiver):
+            for port_name, input_sig in tuple(sig.inputs_by_port.items()):
+                port_info = PortInfo(at=at, port=port_name)
+                self.disconnect(port_info)
+                input_at = self._map.inv[input_sig]
+                con_info = ConnectionInfo(input_at=input_at, output=port_info)
+                inputs.append(con_info)
+
+        sig.destroy()
+        self._map.inv.pop(sig)
+
         if isinstance(sig, signals.chain.dev.SourceDevice):
             assert not inputs, inputs
             result = LinkedDevInfo.for_linked_source(at=at,
@@ -349,15 +382,13 @@ class Map:
                                    state=SigState(sig.get_state()),
                                    links_in=inputs,
                                    links_out=outputs)
-        for connection in result.links:
-            assert self.disconnect(connection.output) == connection.input_at, connection
-        sig.destroy()
+
         return result
 
     def edit(self, at: Coordinates, state: SigState) -> SigState:
         sig = self._find(at)
         old_state = SigState(sig.get_state())
-        self._set_state(at, sig, state)
+        self._apply_state(at, sig, state)
         return old_state
 
     def mv(self, at1: Coordinates, at2: Coordinates) -> None:
@@ -373,7 +404,7 @@ class Map:
         old_input_at = self._map.inv[old_input_port.sig] if old_input_port else None
         if old_input_at == info.input_at:
             raise AlreadyConnected(info)
-        else:
+        elif isinstance(output_sig, Receiver):
             try:
                 # FIXME this does not raise a KeyError if the part name is invalid
                 #  i think I need actual setters instead of using setattr
@@ -382,13 +413,18 @@ class Map:
                 raise BadPort(info.output, output_sig)
             else:
                 return old_input_at
+        else:
+            raise BadReceiver(info.output.at, output_sig)
 
     def disconnect(self, info: PortInfo) -> Coordinates:
         output = self._find(info.at)
         try:
             input = getattr(output, info.port).sig
         except KeyError:
-            raise BadPort(info, output)
+            if isinstance(output, Receiver):
+                raise BadPort(info, output)
+            else:
+                raise BadReceiver(info.at, output)
         else:
             if input is None:
                 raise NotConnected(info)
@@ -408,9 +444,10 @@ class Map:
 
     def iter_connections(self) -> typing.Iterator[ConnectionInfo]:
         for at, sig in self._map.items():
-            for port, input_sig in sig.inputs_by_port.items():
-                yield ConnectionInfo(input_at=self._map.inv[input_sig],
-                                     output=PortInfo(at=at, port=port))
+            if isinstance(sig, Receiver):
+                for port, input_sig in sig.inputs_by_port.items():
+                    yield ConnectionInfo(input_at=self._map.inv[input_sig],
+                                         output=PortInfo(at=at, port=port))
 
     def iter_sources(self) -> typing.Iterator[MappedDevInfo]:
         for at, sig in self._map.items():
@@ -438,21 +475,13 @@ class Map:
         except KeyError:
             raise Empty(at)
 
-    def _set_state(self, at: Coordinates, signal: Signal, state: SigState):
-        try:
-            signal.set_state(state)
-        except KeyError as e:
-            raise BadProperty(at, signal, e.args[0])
-
-    def _find_inputs(self, at: Coordinates, signal: Signal) -> typing.Iterator[ConnectionInfo]:
-        for port in signal.port_names():
-            if input := getattr(signal, port):
-                port_info = PortInfo(at=at, port=port)
-                input_at = self._map.inv[input]
-                yield ConnectionInfo(input_at=input_at, output=port_info)
-
-    def _find_outputs(self, at: Coordinates, signal: Signal) -> typing.Iterator[ConnectionInfo]:
-        for port, output_sig in signal.outputs_with_ports:
-            output_at = self._map.inv[output_sig]
-            port_info = PortInfo(at=output_at, port=port)
-            yield ConnectionInfo(input_at=at, output=port_info)
+    def _apply_state(self, at: Coordinates, signal: Signal, state: SigState):
+        new_state = copy.copy(signal.state)
+        for k, v in state.items():
+            try:
+                setattr(new_state, k, v)
+            except AttributeError:
+                raise BadProperty(at, signal, k)
+            except signals.chain.BadStateValue:
+                raise
+        signal.state = new_state
