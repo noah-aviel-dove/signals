@@ -255,6 +255,12 @@ class LinkedDevInfo(MappedDevInfo, LinkedSigInfo):
                    links_in=links_in)
 
 
+@attr.s(auto_attribs=True, kw_only=True, frozen=True)
+class PlaybackState:
+    position: int | None
+    active: bool | None
+
+
 class MapLayerError(SignalsError):
     pass
 
@@ -324,6 +330,11 @@ class BadReceiver(MapError):
 
     def __init__(self, at: Coordinates, signal: Signal):
         super().__init__(at, f'{signal.cls_name!r} is not a Receiver')
+
+
+class BadPlaybackTarget(MapError):
+    def __init__(self, at: Coordinates):
+        super().__init__(at, 'The signal is not a sink device')
 
 
 class Map:
@@ -434,6 +445,19 @@ class Map:
                 input_at = self._map.inv[input]
                 delattr(output, info.port)
                 return input_at
+
+    def playback(self, at: Coordinates, state: PlaybackState) -> None:
+        sink = self._find(at)
+        if isinstance(sink, signals.chain.dev.SinkDevice):
+            if state.position is not None:
+                sink.seek(state.position)
+            if state.active is not None:
+                if state.active:
+                    sink.start()
+                else:
+                    sink.stop()
+        else:
+            raise BadPlaybackTarget(at)
 
     def iter_signals(self) -> typing.Iterator[MappedSigInfo]:
         for at, sig in self._map.items():

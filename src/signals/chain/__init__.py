@@ -54,6 +54,10 @@ class Shape(typing.NamedTuple):
     frames: int
     channels: int
 
+    @classmethod
+    def unit(cls) -> typing.Self:
+        return Shape(frames=1, channels=1)
+
     def __le__(self, other: tuple[int, int]) -> bool:
         return (self[0] in (1, other[0])) and (self[1] in (1, other[1]))
 
@@ -189,7 +193,7 @@ class Emitter(Signal, abc.ABC):
         raise NotImplementedError
 
     def _get_result(self, request: Request) -> np.ndarray:
-        return self._eval(request) if self.enabled else 0
+        return self._eval(request) if self.enabled else np.zeros(Shape.unit())
 
     def respond(self, request: Request) -> np.ndarray:
         self._last_request = request

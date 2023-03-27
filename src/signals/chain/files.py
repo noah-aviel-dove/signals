@@ -11,9 +11,11 @@ from signals import (
 )
 from signals.chain import (
     BlockCachingEmitter,
+    PassThroughShape,
     Request,
     SigState,
     Signal,
+    port,
 )
 
 
@@ -25,12 +27,12 @@ class SoundFileBase(Signal, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def _sample_path(self) -> pathlib.Path:
+    def _file_path(self) -> pathlib.Path:
         raise NotImplementedError
 
     def _open(self, mode: str, position: int = 0) -> None:
         if self._buffer is None:
-            self._buffer = sf.SoundFile(file=self._sample_path, mode=mode)
+            self._buffer = sf.SoundFile(file=self._file_path, mode=mode)
             self._open(mode, position)
         elif self._buffer.mode != mode:
             self._close()
@@ -64,24 +66,33 @@ class SoundFileWriter(SoundFileBase, abc.ABC):
         self._buffer.write(block)
 
 
-class Recorder(SoundFileReader, SoundFileWriter, BlockCachingEmitter, abc.ABC):
-
-    def __init__(self):
-        super().__init__()
-        self.recording = False
+class RecordingEmitter(SoundFileReader, SoundFileWriter, BlockCachingEmitter, abc.ABC):
 
     @classmethod
     def flags(cls) -> SignalFlags:
         return super().flags() | SignalFlags.RECORDER
 
     @functools.cached_property
-    def _sample_path(self) -> pathlib.Path:
+    def _file_path(self) -> pathlib.Path:
         return pathlib.Path(tempfile.mktemp(prefix='.'.join([
             'signals',
             'buffer_cache',
             type(self).__name__,
             id(self)
         ])))
+
+
+# FIXME test performance with and without block cache
+class Recorder(RecordingEmitter, PassThroughShape):
+
+    input = port('input')
+
+    def __init__(self):
+        super().__init__()
+        self.recording = False
+
+    def _eval(self, request: Request) -> np.ndarray:
+        return self.input.forward(request)
 
     def _get_result(self, request: Request) -> np.ndarray:
         if self.recording:
@@ -92,6 +103,7 @@ class Recorder(SoundFileReader, SoundFileWriter, BlockCachingEmitter, abc.ABC):
         return result
 
 
+# FIXME test performance with and without block cache
 class SamplePlayer(SoundFileReader, BlockCachingEmitter):
 
     def __init__(self):
@@ -103,7 +115,7 @@ class SamplePlayer(SoundFileReader, BlockCachingEmitter):
         return super().flags() | SignalFlags.GENERATOR
 
     @property
-    def _sample_path(self) -> pathlib.Path:
+    def _file_path(self) -> pathlib.Path:
         return self.path
 
     @property

@@ -1,7 +1,6 @@
 import abc
 import queue
 import sys
-import threading
 import typing
 
 import attr as attr
@@ -13,12 +12,15 @@ from signals import (
 )
 from signals.chain import (
     BlockLoc,
-    Emitter,
     Receiver,
     Request,
     Shape,
+    SigState,
     Signal,
     port,
+)
+from signals.chain.files import (
+    RecordingEmitter,
 )
 
 
@@ -74,18 +76,9 @@ class Device(Signal, abc.ABC):
     def __init__(self, info: DeviceInfo):
         super().__init__()
         self.info = info
-        self._stopper = None
-
-    @property
-    def channels(self) -> int:
-        return self.info.max_input_channels
 
     def log(self, msg: typing.Any) -> None:
         print(msg, sys.stderr)
-
-    def destroy(self) -> None:
-        if self._stopper is not None:
-            self._stopper.set()
 
 
 class SinkDevice(Device, Receiver):
@@ -94,37 +87,65 @@ class SinkDevice(Device, Receiver):
     #  (so it doesn't have to be written to during `respond`).
     input = port('input')
 
+    def __init__(self, info: DeviceInfo):
+        super().__init__(info=info)
+        self.frame_position = 0
+        self.channels = 2
+        self._stream = sd.OutputStream(device=self.info.index,
+                                       callback=self._callback)
+
+    def get_state(self) -> SigState:
+        state = super().get_state()
+        state['channels'] = self.channels
+        return state
+
     @classmethod
     def flags(cls) -> SignalFlags:
         return super().flags() | SignalFlags.SINK_DEVICE
 
-    def play(self):
-        position = 0
+    @property
+    def is_active(self) -> bool:
+        return self._stream.active
 
-        def callback(outdata: np.ndarray, frames: int, time: typing.Any, status: sd.CallbackFlags) -> None:
-            nonlocal position
-            if status:
-                self.log(status)
-            shape = Shape(channels=self.channels, frames=frames)
-            loc = BlockLoc(position=position, shape=shape, rate=stream.samplerate)
-            block = self.input.request(loc)
-            outdata[:] = block
-            position += frames
+    def start(self):
+        self._stream.start()
 
-        self._stopper = threading.Event()
+    def stop(self):
+        self._stream.stop()
 
-        stream = sd.OutputStream(device=self.info.index,
-                                 callback=callback,
-                                 finished_callback=self._stopper.set)
-        with stream:
-            self._stopper.wait()
+    def seek(self, position: int):
+        self.frame_position = position * self._stream.blocksize
+
+    def tell(self) -> int:
+        return self.frame_position / self._stream.blocksize
+
+    def _callback(self, outdata: np.ndarray, frames: int, time: typing.Any, status: sd.CallbackFlags) -> None:
+        if status:
+            self.log(status)
+        # FIXME the default output device has 32 channels; we definitely don't
+        #  need to fill all of those all of the time
+        shape = Shape(channels=self._stream.channels, frames=frames)
+        loc = BlockLoc(position=self.frame_position, shape=shape, rate=self._stream.samplerate)
+        block = self.input.request(loc)
+        outdata[:] = block
+        self.frame_position += frames
+
+    def destroy(self) -> None:
+        self._stream.close()
+        super().destroy()
 
 
-class SourceDevice(Device, Emitter):
+class SourceDevice(Device, RecordingEmitter):
 
     def __init__(self, info: DeviceInfo):
         super().__init__(info)
-        self.q = queue.Queue()
+        self.q: queue.Queue[tuple[BlockLoc, np.ndarray]] = queue.Queue()
+        self._stream = None
+        self.position = 0
+
+    @property
+    def channels(self) -> int:
+        return self.info.max_input_channels
 
     @classmethod
     def flags(cls) -> SignalFlags:
@@ -134,22 +155,46 @@ class SourceDevice(Device, Emitter):
         if status:
             self.log(status)
         if frames:
+            old_position = self.position
+            self.position += frames
             # FIXME why is copy necessary?
-            self.q.put(indata.copy())
+            self.q.put((BlockLoc(position=old_position,
+                                 shape=Shape.of_array(indata),
+                                 rate=self._stream.samplerate),
+                        indata.copy()))
         else:
             raise sd.CallbackStop
 
-    def _start(self) -> None:
+    def _start(self, request: Request) -> None:
+        self._stream = sd.InputStream(device=self.info.index,
+                                      callback=self._callback,
+                                      blocksize=request.loc.shape.frames,
+                                      samplerate=request.loc.rate)
+        self._stream.start()
 
-        self._stopper = threading.Event()
-        with sd.InputStream(device=self.info.index,
-                            callback=self._callback,
-                            finished_callback=self._stopper.set):
-            # FIXME need to specify block size... somehow
-            self._stopper.wait()
+    def _get_result(self, request: Request) -> np.ndarray:
+        if self._stream is None:
+            self._start(request)
+
+        if request.loc.shape.frames != self._stream.blocksize:
+            raise NotImplementedError
+
+        if request.loc.position % self._stream.blocksize != 0:
+            raise NotImplementedError
+
+        if request.loc.rate != self._stream.samplerate:
+            raise NotImplementedError
+
+        return super()._get_result(request)
 
     def _eval(self, request: Request) -> np.ndarray:
-        result = np.empty(request.loc.shape)
-        block = self.q.get()
-        # FIXME ???
-        return result
+        max_position = self.position
+        if request.loc.position > max_position:
+            return np.zeros(Shape.unit())
+        else:
+            while True:
+                loc, block = self.q.get()
+                if loc == request.loc:
+                    return block
+                elif loc.position > request.loc.position:
+                    raise RuntimeError

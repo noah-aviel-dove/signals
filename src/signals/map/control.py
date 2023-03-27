@@ -26,6 +26,7 @@ from signals.map import (
     MapLayerError,
     MappedDevInfo,
     MappedSigInfo,
+    PlaybackState,
     PortInfo,
     SigState,
     SigStateItem,
@@ -196,6 +197,24 @@ class HistoryCommand(LineCommand, abc.ABC):
         parser = super().parser()
         parser.add_argument('times', type=int, nargs='?', default=1)
         return parser
+
+
+@attr.s(auto_attribs=True, kw_only=True, frozen=True)
+class PlaybackCommand(LineCommand, abc.ABC):
+    at: Coordinates
+
+    @classmethod
+    def parser(cls) -> argparse.ArgumentParser:
+        parser = super().parser()
+        parser.add_argument('at', type=Coordinates.parse)
+        return parser
+
+    @abc.abstractmethod
+    def target_state(self) -> PlaybackState:
+        raise NotImplementedError
+
+    def affect(self, controller: 'Controller') -> None:
+        controller.map.playback(self.at, self.target_state())
 
 
 class CommandError(MapLayerError):
@@ -623,6 +642,49 @@ class CommandSet:
 
         def _get_devices(self, rack: signals.chain.discovery.Rack) -> list[signals.chain.dev.DeviceInfo]:
             return rack.sinks()
+
+    class PlayCommand(PlaybackCommand):
+
+        @classmethod
+        def name(cls) -> str:
+            return 'play'
+
+        def target_state(self) -> PlaybackState:
+            return PlaybackState(position=None, active=True)
+
+    class PauseCommand(PlaybackCommand):
+
+        @classmethod
+        def name(cls) -> str:
+            return 'pause'
+
+        def target_state(self) -> PlaybackState:
+            return PlaybackState(position=None, active=False)
+
+    class StopCommand(PlaybackCommand):
+
+        @classmethod
+        def name(cls) -> str:
+            return 'stop'
+
+        def target_state(self) -> PlaybackState:
+            return PlaybackState(position=0, active=False)
+
+        class SeekCommand(PlaybackCommand):
+            position: int
+
+            @classmethod
+            def name(cls) -> str:
+                return 'seek'
+
+            @classmethod
+            def parser(cls) -> argparse.ArgumentParser:
+                parser = super().parser()
+                parser.add_argument('position', type=int)
+                return parser
+
+            def target_state(self) -> PlaybackState:
+                return PlaybackState(position=self.position, active=None)
 
 
 class Controller(cmd.Cmd):

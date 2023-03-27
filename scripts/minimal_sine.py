@@ -29,9 +29,8 @@ def main():
     sine_hertz.value = np.array([440], ndmin=2)
     sine.hertz = sine_hertz
 
-    play_thread = threading.Thread(target=sink.play)
-    play_thread.start()
-    while play_thread.is_alive():
+    sink.start()
+    while sink.is_active:
         try:
             time.sleep(1)
         except KeyboardInterrupt:
