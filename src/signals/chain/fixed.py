@@ -29,7 +29,6 @@ class Fixed(Emitter):
 
     def get_state(self) -> dict:
         assert self.value.ndim == 2, self.value
-        return dict(
-            super().get_state(),
-            value=list(map(list, self.value))
-        )
+        state = super().get_state()
+        state['value'] = self.value.tolist()
+        return state
