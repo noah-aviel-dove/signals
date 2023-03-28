@@ -57,7 +57,11 @@ class Scene(QtWidgets.QGraphicsScene):
         else:
             self.mouse_collider.setPos(event.scenePos())
             for item in self.collidingItems(self.mouse_collider):
-                if attempt(item):
+                # For unknown reasons, a `QObject` sometimes included in the
+                # list, causing an AttributeError. Additionally, while non-widget
+                # graphics items do define mouse event methods, they are protected
+                # and calling them raises a RuntimeError.
+                if isinstance(item, QtWidgets.QGraphicsWidget) and attempt(item):
                     break
             # The scene appears to jump around when clicking, I think because
             # it's trying to keep this item on screen. This is an attempt tp

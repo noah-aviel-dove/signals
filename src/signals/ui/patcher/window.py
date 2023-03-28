@@ -192,13 +192,13 @@ class Window(QtWidgets.QMainWindow):
         if self.is_dirty():
             dialog = QtWidgets.QMessageBox()
             dialog.setText('Discard unsaved changes?')
-            dialog.setStandardButtons(dialog.Yes | dialog.No)
-            return dialog.exec() == dialog.Yes
+            dialog.setStandardButtons(dialog.Discard | dialog.Cancel)
+            return dialog.exec() == dialog.Discard
         else:
             return True
 
     def _save(self, path: pathlib.Path):
-        self.controller.map_command(self.controller.command_set.Save(path=path))
+        self.controller.command_set.Save(path=path).affect(self.controller)
         self.statusBar().showMessage(f'Saved as {path}')
         self._set_clean_state()
 

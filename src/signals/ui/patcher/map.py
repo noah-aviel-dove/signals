@@ -49,6 +49,7 @@ class PatcherMap(signals.map.Map):
         container = sq1.content
         sq1.set_content(None)
         container.set_signal(attr.evolve(container.signal, at=at2))
+        # FIXME type mismatch
         sq2.set_content(container)
 
         self.patcher.map_changed.emit(container)
