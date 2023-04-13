@@ -6,6 +6,7 @@ from PyQt5 import (
     QtGui,
     QtWidgets,
 )
+import attr
 
 from signals import (
     PortName,
@@ -182,38 +183,33 @@ class Port(NodePartWidget):
             event.accept()
             self.input_changed.emit(self, new_input, event)
 
+    def clear(self) -> None:
+        if self.input is not None:
+            self.input.remove()
+            self.input = None
+
+    def remove(self) -> None:
+        self.clear()
+        self.scene().removeItem(self)
+
 
 class NodeContainer(QtWidgets.QGraphicsWidget):
     spacing = 5
 
     power_toggled = QtCore.pyqtSignal(object)
+    moved = QtCore.pyqtSignal()
 
     def __init__(self,
-                 # Consider using a `LinkedSigInfo` to reduce redundancy
                  signal: signals.map.MappedSigInfo,
                  parent: typing.Optional[QtWidgets.QGraphicsItem] = None):
         super().__init__(parent=parent)
 
-        self.node: Node | None = None
+        self.signal = signal
+        self.ports = {port_name: Port(name=port_name, parent=self) for port_name in signal.port_names()}
+        self.node = Node(self)
         self.placing_cable: PlacingCable | None = None
         self.placed_cables: set[PlacedCable] = set()
-        self.power_toggle: PowerToggle | None = None
-        self.ports: dict[PortName, Port] = {}
-        self.signal: signals.map.MappedSigInfo = None
 
-        self.set_signal(signal)
-        self.setZValue(-1)
-
-    def set_signal(self, signal: signals.map.MappedSigInfo):
-
-        for port in self.ports.values():
-            self.scene().removeItem(port)
-        if self.power_toggle is not None:
-            self.scene().removeItem(self.power_toggle)
-
-        self.signal = signal
-        self.ports = {port_name: Port(name=port_name) for port_name in signal.port_names()}
-        self.node = Node(self)
         port_layout = hlayout()
         port_layout.setSpacing(self.spacing)
         if signal.flags & SignalFlags.SINK_DEVICE:
@@ -232,6 +228,15 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
         core_layout.addItem(self.node)
 
         self.setLayout(core_layout)
+        self.setZValue(-1)
+
+    def relocate(self, parent: QtWidgets.QGraphicsWidget, at: signals.map.Coordinates) -> None:
+        self.setParentItem(parent)
+        self.signal = attr.evolve(self.signal, at=at)
+        self.moved.emit()
+
+    def change_state(self, state: signals.map.SigState) -> None:
+        self.signal = attr.evolve(self.signal, state=state)
 
     def toggle_power(self) -> None:
         self.power_toggled.emit()
@@ -282,6 +287,7 @@ class Cable(QtWidgets.QGraphicsPolygonItem):
         #  regardless of z-value?
         self.setZValue(-2)
         signals.ui.theme.register(self)
+        parent.moved.connect(self._update_points)
 
     def setPen(self, pen: typing.Union[QtGui.QPen, QtGui.QColor, QtCore.Qt.GlobalColor, QtGui.QGradient]) -> None:
         if not isinstance(pen, QtGui.QPen):
@@ -319,6 +325,7 @@ class PlacedCable(Cable):
     def __init__(self, parent: NodeContainer, target: Port):
         super().__init__(parent=parent)
         parent.placed_cables.add(self)
+        target.container.moved.connect(self._update_points)
         self.target = target
         self._update_points()
 

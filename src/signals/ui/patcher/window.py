@@ -31,7 +31,7 @@ class Window(QtWidgets.QMainWindow):
         )
 
         self._set_title()
-        self.patcher.map_changed.connect(self._on_map_changed)
+        self.patcher.new_container.connect(self._on_new_container)
 
         file = self.menuBar().addMenu(self.tr('&File'))
         file.addAction(self._create_action('New', 'Ctrl+N', self.new))
@@ -257,17 +257,16 @@ class Window(QtWidgets.QMainWindow):
         self.saved_modcount = self.controller.modcount
         self.saved_hash = self.controller.hash()
 
-    def _on_map_changed(self, new_container: signals.ui.graph.NodeContainer | None) -> None:
-        if new_container is not None:
-            # FIXME connect power toggle
-            for port in new_container.ports.values():
-                port.input_changed.connect(self._on_port_changed)
+    def _on_new_container(self, new_container: signals.ui.graph.NodeContainer) -> None:
+        # FIXME connect power toggle
+        for port in new_container.ports.values():
+            port.input_changed.connect(self.on_port_changed)
 
-    def _on_port_changed(self,
-                         port: signals.ui.graph.Port,
-                         new_input: signals.ui.graph.PlacingCable | None,
-                         event: QtWidgets.QGraphicsSceneMouseEvent
-                         ) -> None:
+    def on_port_changed(self,
+                        port: signals.ui.graph.Port,
+                        new_input: signals.ui.graph.PlacingCable | None,
+                        event: QtWidgets.QGraphicsSceneMouseEvent
+                        ) -> None:
         old_input = port.input
         old_input_container = None if old_input is None else old_input.container
         output = signals.map.PortInfo(port=port.name, at=port.container.signal.at)

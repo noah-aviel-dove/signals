@@ -119,21 +119,19 @@ class Square(GridItem):
             painter.setBrush(self.palette().dark())
             painter.drawRect(self.rect())
 
-    def set_content(self, signal: signals.map.MappedSigInfo | None):
-        if signal is None:
-            if self.content is not None:
-                self.scene().removeItem(self.content)
-                self.content = None
-                self.update()
-        else:
-            assert signal.at == self.at, signal
-            self.content = NodeContainer(signal, parent=self)
-            self.update()
+    def set_content(self, content: NodeContainer | None):
+        if self.content is not None:
+            self.scene().removeItem(self.content)
+        if content is not None:
+            assert content.signal.at == self.at, content.signal
+            content.setParentItem(self)
+        self.content = content
+        self.update()
 
 
 class Patcher(QtWidgets.QGraphicsWidget):
 
-    map_changed = QtCore.pyqtSignal(object)
+    new_container = QtCore.pyqtSignal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)

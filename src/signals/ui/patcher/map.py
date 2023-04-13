@@ -1,11 +1,10 @@
-import attr
-
 import signals.map
+from signals.ui.graph import (
+    NodeContainer,
+    PlacedCable,
+)
 from signals.ui.patcher import (
     Patcher,
-)
-from signals.ui.graph import (
-    PlacedCable,
 )
 
 
@@ -20,14 +19,14 @@ class PatcherMap(signals.map.Map):
 
         self.patcher.expand_grid_to(info.at)
         sq = self.patcher.get_square(info.at)
-        sq.set_content(info)
-        self.patcher.map_changed.emit(sq.content)
+        container = NodeContainer(info)
+        sq.set_content(container)
+        self.patcher.new_container.emit(container)
 
     def rm(self, at: signals.map.Coordinates) -> signals.map.LinkedSigInfo:
         info = super().rm(at)
 
         self.patcher.get_square(at).set_content(None)
-        self.patcher.map_changed.emit(None)
 
         return info
 
@@ -35,24 +34,26 @@ class PatcherMap(signals.map.Map):
         result = super().edit(at, state)
 
         container = self.patcher.get_square(at).content
-        container.set_signal(attr.evolve(container.signal, state=state))
-
-        self.patcher.map_changed.emit(container)
+        container.change_state(state)
 
         return result
 
     def mv(self, at1: signals.map.Coordinates, at2: signals.map.Coordinates) -> None:
+        # FIXME first container disappears if two are swapped
         super().mv(at1, at2)
 
         sq1 = self.patcher.get_square(at1)
         sq2 = self.patcher.get_square(at2)
-        container = sq1.content
-        sq1.set_content(None)
-        container.set_signal(attr.evolve(container.signal, at=at2))
-        # FIXME type mismatch
-        sq2.set_content(container)
+        container1 = sq1.content
+        container2 = sq2.content
 
-        self.patcher.map_changed.emit(container)
+        if container1 is not None:
+            container1.relocate(sq2, at2)
+        if container2 is not None:
+            container2.relocate(sq1, at1)
+
+        sq1.set_content(container2)
+        sq2.set_content(container1)
 
     def connect(self, info: signals.map.ConnectionInfo) -> signals.map.Coordinates | None:
         result = super().connect(info)
@@ -64,8 +65,6 @@ class PatcherMap(signals.map.Map):
             port.input.remove()
         port.input = PlacedCable(new_input_container, port)
 
-        self.patcher.map_changed.emit(None)
-
         return result
 
     def disconnect(self, info: signals.map.PortInfo) -> signals.map.Coordinates:
@@ -73,9 +72,6 @@ class PatcherMap(signals.map.Map):
 
         output_container = self.patcher.get_square(info.at).content
         port = output_container.ports[info.port]
-        port.input.remove()
-        port.input = None
-
-        self.patcher.map_changed.emit(None)
+        port.clear()
 
         return result
