@@ -65,6 +65,21 @@ class Window(QtWidgets.QMainWindow):
         cut_signal = self._create_action('Cut signal', 'Ctrl+X', lambda: self.copy_at_active(cut=True))
         self.addAction(cut_signal)
 
+        self._context_actions_by_emptiness = {
+            True: [
+                add_signal,
+                add_source,
+                add_sink,
+                paste_signal,
+            ],
+            False: [
+                rm_signal,
+                copy_signal,
+                cut_signal,
+                # FIXME add UI to edit existing signal
+            ]
+        }
+
         def interpreter(line: str) -> bool:
             self.controller.onecmd(line)
             return False
