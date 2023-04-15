@@ -1,4 +1,5 @@
 import abc
+from abc import ABC
 import collections
 import enum
 import functools
@@ -6,6 +7,7 @@ import itertools
 import typing
 
 import attr
+import attrs.validators
 import more_itertools
 import numpy as np
 
@@ -132,7 +134,7 @@ class RequestRate(enum.Enum):
     UNUSED_FRAME = enum.auto()
 
 
-state = attr.s(auto_attribs=True, frozen=False, kw_only=True, slots=True)
+state = attr.s(auto_attribs=True, frozen=False, kw_only=True)
 
 
 class Signal(abc.ABC, signals.discovery.Named):
@@ -149,13 +151,8 @@ class Signal(abc.ABC, signals.discovery.Named):
         return SignalFlags(0)
 
     @classmethod
-    def state_attrs(cls) -> set[str]:
-        slots = set(itertools.chain.from_iterable(
-            getattr(cls_, '__slots__', ())
-            for cls_ in cls.State.mro())
-        )
-        slots.discard('__weakref__')
-        return slots
+    def state_attrs(cls) -> typing.AbstractSet[str]:
+        return attr.fields_dict(cls.State).keys()
 
     @property
     def state(self) -> State:
@@ -174,7 +171,8 @@ class Signal(abc.ABC, signals.discovery.Named):
 class Emitter(Signal, abc.ABC):
     @state
     class State(Signal.State):
-        enabled: bool = attr.ib(default=True)
+        enabled: bool = attr.ib(validator=attrs.validators.instance_of(bool),
+                                default=True)
 
     def __init__(self):
         super().__init__()
@@ -266,6 +264,13 @@ class Receiver(Signal, abc.ABC):
         def forward_at_block_rate(self, request: Request) -> np.ndarray:
             return self.request(request.loc.resize(1))
 
+        @property
+        def channels(self) -> int | None:
+            if self.sig is None:
+                return None
+            else:
+                return self.sig.channels
+
     def __init__(self):
         super().__init__()
         self._ports = {
@@ -322,7 +327,25 @@ def port(name: PortName) -> _Port:
     return _Port(fget=fget, fset=fset, fdel=fdel)
 
 
-class PassThroughShape(Receiver, Emitter, abc.ABC):
+class ExplicitChannels(Signal, abc.ABC):
+
+    @state
+    class State(Signal.State):
+        channels: int = attr.ib(validator=attrs.validators.ge(1), default=1)
+
+
+class ExplicitChannelsEmitter(ExplicitChannels, Emitter, ABC):
+
+    @state
+    class State(ExplicitChannels.State, Emitter.State):
+        pass
+
+    @property
+    def channels(self) -> int:
+        return self.state.channels
+
+
+class ImplicitChannels(Receiver, Emitter, abc.ABC):
 
     @property
     def channels(self) -> int:

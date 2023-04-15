@@ -12,6 +12,7 @@ from signals import (
 )
 from signals.chain import (
     BlockLoc,
+    ExplicitChannels,
     Receiver,
     Request,
     Shape,
@@ -81,16 +82,16 @@ class Device(Signal, abc.ABC):
         print(msg, sys.stderr)
 
 
-class SinkDevice(Device, Receiver):
+class SinkDevice(Device, Receiver, ExplicitChannels):
     # FIXME this should support recording.
     #  Give `Recorder` an ABC that allows for more flexible buffer population
     #  (so it doesn't have to be written to during `respond`).
     input = port('input')
 
     @state
-    class State(Signal.State):
-        # FIXME need more flexible validation because this shouldn't be greater than self.info.max_channels
-        channels: int = attr.ib(default=2, validator=attr.validators.ge(1))
+    class State(ExplicitChannels.State):
+        # FIXME need more flexible validation because `channels` shouldn't be greater than self.info.max_channels
+        pass
 
     def __init__(self, info: DeviceInfo):
         super().__init__(info=info)

@@ -9,13 +9,13 @@ from signals import (
 )
 from signals.chain import (
     BlockCachingEmitter,
-    PassThroughShape,
+    ImplicitChannels,
     Request,
     port,
 )
 
 
-class Osc(BlockCachingEmitter, PassThroughShape, abc.ABC):
+class Osc(BlockCachingEmitter, ImplicitChannels, abc.ABC):
     hertz = port('hertz')
     phase = port('phase')
 

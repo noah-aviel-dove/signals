@@ -12,7 +12,7 @@ from signals import (
 )
 from signals.chain import (
     BlockCachingEmitter,
-    PassThroughShape,
+    ImplicitChannels,
     Request,
     Signal,
     port,
@@ -85,7 +85,7 @@ class RecordingEmitter(SoundFileReader, SoundFileWriter, BlockCachingEmitter, ab
 
 
 # FIXME test performance with and without block cache
-class Recorder(RecordingEmitter, PassThroughShape):
+class Recorder(RecordingEmitter, ImplicitChannels):
 
     input = port('input')
 

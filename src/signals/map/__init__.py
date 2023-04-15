@@ -198,7 +198,7 @@ class MappedSigInfo:
         else:
             return []
 
-    def state_attr_names(self) -> set[str]:
+    def state_attr_names(self) -> typing.AbstractSet[str]:
         return self._sig_cls.state_attrs()
 
     @property
@@ -376,7 +376,7 @@ class BadProperty(BadName, MapError):
 
     def __init__(self, at: Coordinates, signal: Signal, prop: str):
         super().__init__(at,
-                         f'{signal.cls_name} has no property {prop!r}.',
+                         f'{signal.cls_name()} has no property {prop!r}.',
                          options=signal.state_attrs())
 
 
