@@ -8,6 +8,7 @@ from PyQt5 import (
 )
 
 import PyQtCmd
+import attr
 
 import signals.map.control
 import signals.ui.patcher
@@ -54,6 +55,13 @@ class Window(QtWidgets.QMainWindow):
         self.addAction(add_sink)
         add_source = self._create_action('Add input device', 'Alt+I', self.add_source_at_active)
         self.addAction(add_source)
+
+        copy_signal = self._create_action('Copy signal', 'Ctrl+C', self.copy_at_active)
+        self.addAction(copy_signal)
+        paste_signal = self._create_action('Paste signal', 'Ctrl+V', self.paste_at_active)
+        self.addAction(paste_signal)
+        cut_signal = self._create_action('Cut signal', 'Ctrl+X', lambda: self.copy_at_active(cut=True))
+        self.addAction(cut_signal)
 
         def interpreter(line: str) -> bool:
             self.controller.onecmd(line)
@@ -139,6 +147,27 @@ class Window(QtWidgets.QMainWindow):
             dialog = signals.ui.patcher.dialog.EditSignal(sq.content.signal)
             dialog.accepted.connect(lambda: self._edit_signal(dialog.info()))
             dialog.open()
+
+    _signal_mime_type = 'application/prs.signals.signal'
+
+    def copy_at_active(self, cut: bool = False) -> None:
+        sq = self._active_square(empty=False)
+        if sq is not None:
+            add_cmd = self.controller.command_set.Add(signal=sq.content.signal)
+            data = QtCore.QMimeData()
+            data.setData(self._signal_mime_type, add_cmd.serialize().encode())
+            QtGui.QGuiApplication.clipboard().setMimeData(data)
+            if cut:
+                self.controller.push(self.controller.command_set.Remove(at=sq.at))
+
+    def paste_at_active(self) -> None:
+        sq = self._active_square(empty=True)
+        data = QtGui.QGuiApplication.clipboard().mimeData()
+        if sq is not None and data.hasFormat(self._signal_mime_type):
+            add_cmd = self.controller.parse_line(data.data(self._signal_mime_type).data().decode())
+            assert isinstance(add_cmd, self.controller.command_set.Add), add_cmd
+            add_cmd = attr.evolve(add_cmd, signal=attr.evolve(add_cmd.signal, at=sq.at))
+            self.controller.push(add_cmd)
 
     def new(self):
         if self._discard_prompt():
