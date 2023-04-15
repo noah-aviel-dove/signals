@@ -88,45 +88,45 @@ class SerializingCommand(Command, abc.ABC):
         raise NotImplementedError
 
 
-class MapCommand(Command, abc.ABC):
+class StackCommand(Command, abc.ABC):
 
     def affect(self, controller: 'Controller'):
-        controller.map_command(self)
+        controller.push(self)
 
     @abc.abstractmethod
-    def do(self, sig_map: Map) -> None:
+    def do(self, controller: 'Controller') -> None:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def undo(self, sig_map: Map) -> None:
+    def undo(self, controller: 'Controller') -> None:
         raise NotImplementedError
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class BatchMapCommand(MapCommand):
-    cmds: typing.Sequence[MapCommand]
+class BatchStackCommand(StackCommand):
+    cmds: typing.Sequence[StackCommand]
     label: str
 
-    def undo(self, sig_map: Map) -> None:
-        self._rollback(sig_map, self.cmds)
+    def undo(self, controller: 'Controller') -> None:
+        self._rollback(controller, self.cmds)
 
-    def do(self, sig_map: Map) -> None:
+    def do(self, controller: 'Controller') -> None:
         # This is hopefully atomic
         for i, cmd in enumerate(self.cmds):
             try:
-                cmd.do(sig_map)
+                cmd.do(controller)
             except Exception:
                 # If the batch fails partway through, roll back to previous
                 # state
-                self._rollback(sig_map, self.cmds[:i])
+                self._rollback(controller, self.cmds[:i])
                 raise
 
-    def _rollback(self, sig_map: Map, cmds: typing.Reversible[MapCommand]):
-        for cmd in reversed(self.cmds):
+    def _rollback(self, controller: 'Controller', cmds: typing.Reversible[StackCommand]):
+        for cmd in reversed(cmds):
             # If any undo operation ever raises an exception, that indicates
             # something has gone terribly wrong, and the exception should
             # not be caught.
-            cmd.undo(sig_map)
+            cmd.undo(controller)
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
@@ -141,8 +141,8 @@ class FileCommand(LineCommand, abc.ABC):
         return parser
 
 
-@attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class DeviceAssociationCommand(LineCommand, SerializingCommand, abc.ABC):
+@attr.s(auto_attribs=True, kw_only=True, frozen=False)
+class DeviceAssociationCommand(LineCommand, StackCommand, SerializingCommand, abc.ABC):
     at: Coordinates
     device_name: str
 
@@ -161,8 +161,11 @@ class DeviceAssociationCommand(LineCommand, SerializingCommand, abc.ABC):
             self.device_name
         ))
 
-    def affect(self, controller: 'Controller') -> None:
-        controller.map_command(CommandSet.Add(signal=self._get_device(controller)))
+    def do(self, controller: 'Controller') -> None:
+        controller.map.add(self._get_device(controller))
+
+    def undo(self, controller: 'Controller') -> None:
+        controller.map.rm(self.at)
 
     @abc.abstractmethod
     def _get_device(self, controller: 'Controller') -> MappedDevInfo:
@@ -276,7 +279,7 @@ class CommandSet:
         return cmd_cls(**cmd_args)
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
-    class Add(LineCommand, MapCommand, SerializingCommand):
+    class Add(LineCommand, StackCommand, SerializingCommand):
         signal: MappedSigInfo
 
         @classmethod
@@ -310,14 +313,14 @@ class CommandSet:
                 str(self.signal.state)
             ))
 
-        def do(self, sig_map: Map):
-            sig_map.add(self.signal)
+        def do(self, controller: 'Controller'):
+            controller.map.add(self.signal)
 
-        def undo(self, sig_map: Map):
-            sig_map.rm(self.signal.at)
+        def undo(self, controller: 'Controller'):
+            controller.map.rm(self.signal.at)
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
-    class Remove(LineCommand, MapCommand, LossyCommand[LinkedSigInfo]):
+    class Remove(LineCommand, StackCommand, LossyCommand[LinkedSigInfo]):
         at: Coordinates
 
         @classmethod
@@ -335,18 +338,18 @@ class CommandSet:
             parser.add_argument('at', type=Coordinates.parse)
             return parser
 
-        def do(self, sig_map: Map):
-            sig_info = sig_map.rm(self.at)
+        def do(self, controller: 'Controller'):
+            sig_info = controller.map.rm(self.at)
             self.push_stash(sig_info)
 
-        def undo(self, sig_map: Map):
+        def undo(self, controller: 'Controller'):
             stash = self.pop_stash()
-            sig_map.add(stash)
+            controller.map.add(stash)
             for connection in stash.links:
-                sig_map.connect(connection)
+                controller.map.connect(connection)
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
-    class Edit(LineCommand, MapCommand, LossyCommand[SigState]):
+    class Edit(LineCommand, StackCommand, LossyCommand[SigState]):
         at: Coordinates
         state: SigState
 
@@ -372,15 +375,15 @@ class CommandSet:
             return dict(at=args.at,
                         state=SigState(args.sig_state))
 
-        def do(self, sig_map: Map):
-            old_state = sig_map.edit(at=self.at, state=self.state)
+        def do(self, controller: 'Controller'):
+            old_state = controller.map.edit(at=self.at, state=self.state)
             self.push_stash(old_state)
 
-        def undo(self, sig_map: Map):
-            sig_map.edit(self.at, self.pop_stash())
+        def undo(self, controller: 'Controller'):
+            controller.map.edit(self.at, self.pop_stash())
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
-    class Move(LineCommand, MapCommand):
+    class Move(LineCommand, StackCommand):
         at1: Coordinates
         at2: Coordinates
 
@@ -400,14 +403,14 @@ class CommandSet:
             parser.add_argument('at2', type=Coordinates.parse)
             return parser
 
-        def do(self, sig_map: Map):
-            sig_map.mv(self.at1, self.at2)
+        def do(self, controller: 'Controller'):
+            controller.map.mv(self.at1, self.at2)
 
-        def undo(self, sig_map: Map):
-            sig_map.mv(self.at2, self.at1)
+        def undo(self, controller: 'Controller'):
+            controller.map.mv(self.at2, self.at1)
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
-    class Connect(LineCommand, MapCommand, SerializingCommand, LossyCommand[ConnectionInfo | None]):
+    class Connect(LineCommand, StackCommand, SerializingCommand, LossyCommand[ConnectionInfo | None]):
         connection: ConnectionInfo
 
         @classmethod
@@ -438,21 +441,21 @@ class CommandSet:
                 str(self.connection.output)
             ))
 
-        def do(self, sig_map: Map):
-            old_input_at = sig_map.connect(self.connection)
+        def do(self, controller: 'Controller'):
+            old_input_at = controller.map.connect(self.connection)
             self.push_stash(None
                             if old_input_at is None else
                             ConnectionInfo(input_at=old_input_at,
                                            output=self.connection.output))
 
-        def undo(self, sig_map: Map):
-            sig_map.disconnect(self.connection.output)
+        def undo(self, controller: 'Controller'):
+            controller.map.disconnect(self.connection.output)
             stash = self.pop_stash()
             if stash is not None:
-                sig_map.connect(stash)
+                controller.map.connect(stash)
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
-    class Disconnect(LineCommand, MapCommand, LossyCommand[ConnectionInfo]):
+    class Disconnect(LineCommand, StackCommand, LossyCommand[ConnectionInfo]):
         port: PortInfo
 
         @classmethod
@@ -470,12 +473,12 @@ class CommandSet:
             parser.add_argument('port', type=PortInfo.parse)
             return parser
 
-        def do(self, sig_map: Map):
-            input_at = sig_map.disconnect(info=self.port)
+        def do(self, controller: 'Controller'):
+            input_at = controller.map.disconnect(info=self.port)
             self.push_stash(ConnectionInfo(input_at=input_at, output=self.port))
 
-        def undo(self, sig_map: Map):
-            sig_map.connect(self.pop_stash())
+        def undo(self, controller: 'Controller'):
+            controller.map.connect(self.pop_stash())
 
     class Source(DeviceAssociationCommand):
 
@@ -532,19 +535,18 @@ class CommandSet:
             return 'init'
 
         def affect(self, controller: 'Controller') -> None:
-            controller.map_command(self.batch_clear(controller))
+            controller.push(self.batch_clear(controller))
 
         @classmethod
-        def batch_clear(cls, controller: 'Controller') -> BatchMapCommand:
+        def batch_clear(cls, controller: 'Controller') -> BatchStackCommand:
             cmds = []
-            sig_map = controller.map
-            for connection in sig_map.iter_connections():
+            for connection in controller.map.iter_connections():
                 cmds.append(CommandSet.Disconnect(port=connection.output))
-            for signal in itertools.chain(sig_map.iter_sinks(),
-                                          sig_map.iter_sources(),
-                                          sig_map.iter_signals()):
+            for signal in itertools.chain(controller.map.iter_sinks(),
+                                          controller.map.iter_sources(),
+                                          controller.map.iter_signals()):
                 cmds.append(CommandSet.Remove(at=signal.at))
-            return BatchMapCommand(cmds=cmds, label=cls.name())
+            return BatchStackCommand(cmds=cmds, label=cls.name())
 
     class Save(FileCommand):
 
@@ -564,21 +566,22 @@ class CommandSet:
             return 'load'
 
         def affect(self, controller: 'Controller') -> None:
-            controller.map_command(self.batch_load(self.path, controller))
+            controller.push(self.batch_load(self.path, controller))
 
         @classmethod
-        def batch_load(cls, path: pathlib.Path, controller: 'Controller') -> BatchMapCommand:
+        def batch_load(cls, path: pathlib.Path, controller: 'Controller') -> BatchStackCommand:
             clear = controller.command_set.Init.batch_clear(controller)
             cmds = list(clear.cmds)
             dump_cmds = {'add', 'con', 'source', 'sink'}
             with open(path) as f:
                 for line in f:
                     cmd_ = controller.parse_line(line)
-                    if isinstance(cmd_, MapCommand) and isinstance(cmd_, LineCommand) and cmd_.name() in dump_cmds:
+                    if cmd_.name() in dump_cmds:
+                        assert isinstance(cmd_, StackCommand), cmd_
                         cmds.append(cmd_)
                     else:
                         raise BadCommand(line, dump_cmds)
-            return BatchMapCommand(cmds=cmds, label=cls.name())
+            return BatchStackCommand(cmds=cmds, label=cls.name())
 
     class Show(LineCommand):
 
@@ -709,7 +712,7 @@ class Controller(cmd.Cmd):
         self.library.scan()
         self.rack = signals.chain.discovery.Rack()
         self.rack.scan()
-        self.history = collections.deque[MapCommand](maxlen=100)
+        self.history = collections.deque[StackCommand](maxlen=100)
         self.history_index = None
         self.exit = False
 
@@ -755,8 +758,8 @@ class Controller(cmd.Cmd):
         else:
             print('Invalid response', file=self.stdout)
 
-    def map_command(self, cmd_: MapCommand) -> None:
-        cmd_.do(self.map)
+    def push(self, cmd_: StackCommand) -> None:
+        cmd_.do(self)
         self.modcount += 1
         if self.history_index is not None:
             while len(self.history) > self.history_index + 1:
@@ -769,7 +772,7 @@ class Controller(cmd.Cmd):
             raise BadUndo
         else:
             cmd_ = self.history[self.history_index]
-            cmd_.undo(self.map)
+            cmd_.undo(self)
             self.modcount -= 1
             assert self.modcount >= 0
             self.history_index -= 1
@@ -782,7 +785,7 @@ class Controller(cmd.Cmd):
             raise BadRedo
         else:
             cmd_ = self.history[target_index]
-            cmd_.do(self.map)
+            cmd_.do(self)
             self.modcount += 1
             self.history_index = target_index
 
@@ -812,7 +815,7 @@ class Controller(cmd.Cmd):
     def grep(self, pattern: str) -> list[str]:
         return sorted(fnmatch.filter(self.library.names, pattern))
 
-    def parse_line(self, line: str) -> Command:
+    def parse_line(self, line: str) -> LineCommand:
         args = shlex.split(line)
         cmd_, *args = args
         return self.command_set.parse(cmd_, args)

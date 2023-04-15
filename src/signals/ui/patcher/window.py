@@ -233,13 +233,13 @@ class Window(QtWidgets.QMainWindow):
             return sq
 
     def _add_signal(self, signal: signals.map.MappedSigInfo):
-        self.controller.map_command(self.controller.command_set.Add(signal=signal))
+        self.controller.push(self.controller.command_set.Add(signal=signal))
 
     def _remove_signal(self, at: signals.map.Coordinates):
-        self.controller.map_command(self.controller.command_set.Remove(at=at))
+        self.controller.push(self.controller.command_set.Remove(at=at))
 
     def _edit_signal(self, signal: signals.map.MappedSigInfo):
-        self.controller.map_command(self.controller.command_set.Edit(at=signal.at, state=signal.state))
+        self.controller.push(self.controller.command_set.Edit(at=signal.at, state=signal.state))
 
     def _undo(self):
         try:
@@ -277,7 +277,7 @@ class Window(QtWidgets.QMainWindow):
             input = new_input.container.signal
             cmd_ = command_set.Connect(connection=signals.map.ConnectionInfo(input_at=input.at, output=output))
 
-        self.controller.map_command(cmd_)
+        self.controller.push(cmd_)
 
         if new_input is not None:
             new_input.remove()
