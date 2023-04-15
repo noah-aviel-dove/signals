@@ -92,7 +92,6 @@ class Square(GridItem):
     def __init__(self, at: signals.map.Coordinates, parent=None):
         super().__init__(context=GridContext.body, parent=parent)
         self.at = at
-        # FIXME add context menu
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.RightButton)
         self.setAcceptHoverEvents(True)
         self.content: NodeContainer | None = None
@@ -106,6 +105,13 @@ class Square(GridItem):
         event.accept()
         self.setActive(False)
         self.update()
+
+    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
+        assert event.button() == QtCore.Qt.MouseButton.RightButton, event.button()
+        # FIXME add context menu
+        #  Perhaps the actions defined in the window need to be moved to the Patcher?
+        #  It's very difficult for graphics widgets to communicate with the root window
+        print(type(self.window()))
 
     def paint(self,
               painter: QtGui.QPainter,
