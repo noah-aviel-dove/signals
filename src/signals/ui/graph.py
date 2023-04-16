@@ -242,6 +242,14 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
         self.power_toggled.emit()
         # FIXME update UI, connect signal in patcher
 
+    def resizeEvent(self, event: QtWidgets.QGraphicsSceneResizeEvent) -> None:
+        super().resizeEvent(event)
+        self.moved.emit()
+
+    def moveEvent(self, event: QtWidgets.QGraphicsSceneMoveEvent) -> None:
+        super().moveEvent(event)
+        self.moved.emit()
+
 
 class RateIndicator(QtWidgets.QGraphicsRectItem):
 
@@ -298,9 +306,6 @@ class Cable(QtWidgets.QGraphicsPolygonItem):
 
     def input_pos(self) -> QtCore.QPointF:
         node = self.container.node
-        # FIXME when a deletion/disconnection is undone, the parent hasn't been
-        #  fully added to the scene yet and the rect is empty, causing this to
-        #  snap to (0, 0)
         r = node.rect()
         return self.mapFromItem(node, QtCore.QPointF(r.center().x(), r.bottom()))
 
