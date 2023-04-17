@@ -65,6 +65,23 @@ class Shape(typing.NamedTuple):
 
     @classmethod
     def of_array(cls, array: np.ndarray) -> typing.Self:
+        """
+        >>> Shape.of_array(np.array([[1, 2, 3]]))
+        Shape(frames=1, channels=3)
+        
+        >>> Shape.of_array(np.array([[1], [2], [2]]))
+        Shape(frames=3, channels=1)
+        
+        >>> Shape.of_array(np.array([]))
+        Traceback (most recent call last):
+        ...
+        TypeError: Shape.__new__() missing 1 required positional argument: 'channels'
+        
+        >>> Shape.of_array(np.array([[[]]]))
+        Traceback (most recent call last):
+        ...
+        TypeError: Shape.__new__() takes 3 positional arguments but 4 were given
+        """
         return cls(*array.shape)
 
 
