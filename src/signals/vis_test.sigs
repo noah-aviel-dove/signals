@@ -1,0 +1,7 @@
+sink 4c default
++ 1c signals.chain.fixed.Fixed enabled=true value=[[220]]
++ 2c signals.chain.osc.Sine enabled=true
++ 3c signals.chain.vis.Wave enabled=true min_amp=-1.0 max_amp=1.0
+> 1c 2c.hertz
+> 2c 3c.input
+> 3c 4c.input

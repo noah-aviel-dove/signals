@@ -3,7 +3,6 @@ from abc import ABC
 import collections
 import enum
 import functools
-import itertools
 import typing
 
 import attr
@@ -375,6 +374,17 @@ class ImplicitChannels(Receiver, Emitter, abc.ABC):
         return more_itertools.one(input_shape)
 
 
+class PassThroughResult(ImplicitChannels, ABC):
+    input: Receiver.BoundPort = port('input')
+
+    @classmethod
+    def flags(cls) -> SignalFlags:
+        return super().flags() | SignalFlags.PASSTHRU
+
+    def _get_result(self, request: Request) -> np.ndarray:
+        return super()._get_result(request) if self.state.enabled else self.input.forward(request)
+
+
 class NotCached(RuntimeError):
     pass
 
@@ -426,9 +436,3 @@ if False:
         def flags(cls) -> SignalFlags:
             return super().flags() | SignalFlags.EPOCH
 
-
-    class Vis(Signal, abc.ABC):
-
-        @classmethod
-        def flags(cls) -> SignalFlags:
-            return super().flags() | SignalFlags.VIS

@@ -8,6 +8,7 @@ import typing
 
 import attr
 import bijection
+import matplotlib.pyplot as plt
 import numpy as np
 
 from signals import (
@@ -23,6 +24,7 @@ from signals.chain import (
 )
 import signals.chain.dev
 import signals.chain.discovery
+import signals.chain.vis
 
 CoordinateRow = int
 
@@ -380,16 +382,24 @@ class BadProperty(BadName, MapError):
                          options=signal.state_attrs())
 
 
-class BadReceiver(MapError):
+class BadSignalClass(MapError):
+    def __init__(self, at: Coordinates, signal: Signal, expected):
+        super().__init__(at, f'{signal.cls_name!r} is not a {expected.__name__}')
 
+
+class BadReceiver(BadSignalClass):
     def __init__(self, at: Coordinates, signal: Signal):
-        super().__init__(at, f'{signal.cls_name!r} is not a Receiver')
+        super().__init__(at, signal, Receiver)
 
 
-class BadPlaybackTarget(MapError):
+class BadPlaybackTarget(BadSignalClass):
+    def __init__(self, at: Coordinates, signal: Signal):
+        super().__init__(at, signal, signals.chain.dev.SinkDevice)
 
-    def __init__(self, at: Coordinates):
-        super().__init__(at, 'The signal is not a sink device')
+
+class BadVis(BadSignalClass):
+    def __init__(self, at: Coordinates, signal: Signal):
+        super().__init__(at, signal, signals.chain.vis.Vis)
 
 
 class Map:
@@ -509,7 +519,7 @@ class Map:
                 else:
                     sink.stop()
         else:
-            raise BadPlaybackTarget(at)
+            raise BadPlaybackTarget(at, sink)
 
     def iter_signals(self) -> typing.Iterator[MappedSigInfo]:
         for at, sig in self._map.items():
@@ -538,6 +548,13 @@ class Map:
                 yield MappedDevInfo.for_sink(at=at,
                                              device=sig.info,
                                              state=SigState.from_signal(sig))
+
+    def render(self, at: Coordinates, ax: plt.Axes, frames: int) -> list[plt.Artist]:
+        sig = self._find(at)
+        if isinstance(sig, signals.chain.vis.Vis):
+            return sig.render(ax, frames)
+        else:
+            raise BadVis(at, sig)
 
     def _find(self, at: Coordinates) -> Signal:
         try:

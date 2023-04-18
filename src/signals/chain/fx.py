@@ -94,23 +94,21 @@ class CritFilter(Effect, abc.ABC):
             scaled_crit = np.array((crit_1[0, i], *(() if crit_2 is None else crit_2[0, i])), dtype=np.float)
             scaled_crit /= frame_rate / 2
             scaled_crit.clip(0, 1, out=scaled_crit)
-            sos = self._sos(self.type(), self.order, scaled_crit)
-            result[:, i] = scipy.signal.sosfilt(sos, input[:, i], axis=0)
+            p = self._get_filter_params(self.type(), self.order, scaled_crit)
+            result[:, i] = scipy.signal.filtfilt(*p, input[:, i], axis=0)
         return result
 
-    def _sos(self,
-             type_: Type,
-             order: int,
-             scaled_crit: typing.Sequence[float]
-             ) -> np.ndarray:
-        sos = scipy.signal.butter(
+    def _get_filter_params(self,
+                           type_: Type,
+                           order: int,
+                           scaled_crit: typing.Sequence[float]
+                           ):
+        # Not caching this because the output must be mutable for `sosfilt`
+        return scipy.signal.butter(
             N=order,
             Wn=scaled_crit,
             btype=type_,
-            output='sos',
         )
-        # Not caching this because the output must be mutable for `sosfilt`
-        return sos
 
 
 class SingleCritFilter(CritFilter, abc.ABC):

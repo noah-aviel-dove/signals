@@ -10,6 +10,7 @@ from PyQt5 import (
 import PyQtCmd
 import attr
 
+from signals import SignalFlags
 import signals.map.control
 import signals.ui.patcher
 import signals.ui.patcher.map
@@ -17,6 +18,7 @@ import signals.ui.patcher.dialog
 import signals.ui.theme
 import signals.ui.scene
 import signals.ui.graph
+import signals.ui.vis
 
 
 class Window(QtWidgets.QMainWindow):
@@ -72,6 +74,11 @@ class Window(QtWidgets.QMainWindow):
         console_dock.setWidget(console)
         signals.ui.theme.register(console_dock)
 
+        self.vis_rack = signals.ui.vis.VisRack()
+        vis_dock = QtWidgets.QDockWidget()
+        vis_dock.setWidget(self.vis_rack)
+        signals.ui.theme.register(vis_dock)
+
         self.controller.stdout = console.stdout
         self.controller.stdin = None
 
@@ -80,6 +87,7 @@ class Window(QtWidgets.QMainWindow):
         view = QtWidgets.QGraphicsView(scene)
         self.setCentralWidget(view)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, console_dock)
+        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, vis_dock)
         self.setStatusBar(QtWidgets.QStatusBar())
 
         signals.ui.theme.register(self.menuBar())
@@ -288,6 +296,9 @@ class Window(QtWidgets.QMainWindow):
         for port in new_container.ports.values():
             port.input_changed.connect(self.on_port_changed)
 
+        if new_container.signal.flags & SignalFlags.VIS:
+            self.add_vis(new_container)
+
     def on_port_changed(self,
                         port: signals.ui.graph.Port,
                         new_input: signals.ui.graph.PlacingCable | None,
@@ -310,3 +321,12 @@ class Window(QtWidgets.QMainWindow):
 
         if old_input_container is not None:
             signals.ui.graph.PlacingCable(old_input_container, event.scenePos())
+
+    def add_vis(self, container: signals.ui.graph.NodeContainer) -> None:
+        vis = signals.ui.vis.VisCanvas(self.controller.map, container.signal.at)
+
+        def retarget_vis():
+            vis.at = container.signal.at
+
+        container.moved.connect(retarget_vis)
+        self.vis_rack.add(vis)

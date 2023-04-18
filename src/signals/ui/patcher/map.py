@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+
 import signals.map
 from signals.ui.graph import (
     NodeContainer,
