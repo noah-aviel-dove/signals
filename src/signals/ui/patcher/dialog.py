@@ -103,10 +103,10 @@ class SigStateEditor(QtWidgets.QWidget):
 
         self.setLayout(layout)
 
-    def reset_state(self):
-        for key, init_value in self.init_state.items():
-            self.state[key] = init_value
-            self.editors[key].setText(init_value)
+    def reset_changes(self):
+        for item in self.init_state.items():
+            item: signals.map.SigStateItem
+            self._set_value(item)
 
     def _set_value(self, item: signals.map.SigStateItem):
         self.state[item.k] = item.v
@@ -131,7 +131,7 @@ class AddSignal(SignalDialog):
         self.at = at
 
         layout = QtWidgets.QVBoxLayout()
-        editor = QtWidgets.QLineEdit()
+        cls_name_editor = QtWidgets.QLineEdit()
         chooser = QtWidgets.QListWidget()
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
         buttons.button(buttons.Ok).setEnabled(False)
@@ -145,18 +145,27 @@ class AddSignal(SignalDialog):
             self.cls_name = item.text()
             self.accept()
 
-        def enable_button():
-            buttons.button(buttons.Ok).setEnabled(chooser.currentItem() is not None)
+        def on_selection_changed():
+            has_selection = chooser.currentItem() is not None
+            buttons.button(buttons.Ok).setEnabled(has_selection)
+            if has_selection:
+                pass
+                # add state editor; populate with self.info().state
+            else:
+                pass
+                # remove state editor
 
-        editor.textChanged.connect(filter)
+        cls_name_editor.textChanged.connect(filter)
         chooser.currentItemChanged.connect(lambda curr, prev: chooser.setCurrentItem(curr))
-        chooser.itemSelectionChanged.connect(enable_button)
+        chooser.itemSelectionChanged.connect(on_selection_changed)
         chooser.itemActivated.connect(choose)
         buttons.accepted.connect(lambda: choose(chooser.currentItem()))
         buttons.rejected.connect(self.reject)
 
-        layout.addWidget(editor)
+        layout.addWidget(cls_name_editor)
         layout.addWidget(chooser)
+        if False:
+            layout.addWidget(SigStateEditor())
         layout.addWidget(buttons)
 
         self.setLayout(layout)
