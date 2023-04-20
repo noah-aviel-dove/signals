@@ -178,21 +178,18 @@ class Window(QtWidgets.QMainWindow):
         # FIXME create new empty window
         raise NotImplementedError
 
-    def save(self):
+    def save(self) -> None:
         if self.path is None:
-            self.path = self.save_as()
+            self.save_as()
         else:
             self._save(self.path)
 
-    def save_as(self) -> pathlib.Path | None:
+    def save_as(self) -> None:
         path, _ = QtWidgets.QFileDialog().getSaveFileName(parent=self,
                                                           caption='Save as...')
         if path:
-            path = pathlib.Path(path)
-            self._save(path)
-            return path
-        else:
-            return None
+            self.path = pathlib.Path(path)
+            self.save()
 
     def open(self):
         if self._discard_prompt():
