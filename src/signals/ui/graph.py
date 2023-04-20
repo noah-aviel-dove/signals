@@ -9,7 +9,6 @@ from PyQt5 import (
 import attr
 
 from signals import (
-    PortName,
     SignalFlags,
 )
 import signals.map
@@ -102,25 +101,24 @@ class NodePartWidget(QtWidgets.QGraphicsWidget):
 
 
 class Node(NodePartWidget):
+    radius = 40
 
-    def __init__(self, parent: 'NodeContainer'):
-        # FIXME this should be split into a new class hierarchy for different signal interfaces
-        max_radius = 40
-        if parent.signal.flags & SignalFlags.SINK_DEVICE:
-            n_radii = 4
-            buttons = QtCore.Qt.MouseButton.NoButton
-        else:
-            n_radii = 1
-            buttons = QtCore.Qt.MouseButton.LeftButton
-        radii = (max_radius - 10*i for i in range(n_radii))
+    def __init__(self,
+                 *delegates: QtWidgets.QAbstractGraphicsShapeItem,
+                 parent: 'NodeContainer',
+                 ):
         super().__init__(
-            *(
-                NodePartEllipse((max_radius - radius)/2, (max_radius - radius)/2, radius, radius)
-                for radius in radii
-            ),
+            NodePartEllipse(0, 0, self.radius, self.radius),
+            *delegates,
             parent=parent
         )
-        self.setAcceptedMouseButtons(buttons)
+
+
+class EmitterNode(Node):
+
+    def __init__(self, parent: 'NodeContainer'):
+        super().__init__(parent=parent)
+        self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
 
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         cable = self.scene().mouseGrabberItem()
@@ -131,6 +129,20 @@ class Node(NodePartWidget):
                 event.ignore()
         else:
             PlacingCable(self.container, event.scenePos())
+
+
+class SinkNode(Node):
+
+    def __init__(self, parent: 'NodeContainer'):
+        n_radii = self.radius // 10
+        radii = [self.radius * i / n_radii for i in range(1, n_radii)]
+        super().__init__(
+            *[
+                NodePartEllipse((self.radius - radius)/2, (self.radius - radius)/2, radius, radius)
+                for radius in radii
+            ],
+            parent=parent
+        )
 
 
 class PowerToggle(NodePartWidget):
@@ -206,16 +218,16 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
 
         self.signal = signal
         self.ports = {port_name: Port(name=port_name, parent=self) for port_name in signal.port_names()}
-        self.node = Node(self)
         self.placing_cable: PlacingCable | None = None
         self.placed_cables: set[PlacedCable] = set()
 
         port_layout = hlayout()
         port_layout.setSpacing(self.spacing)
         if signal.flags & SignalFlags.SINK_DEVICE:
+            self.node = SinkNode(self)
             # FIXME add play button
-            pass
         else:
+            self.node = EmitterNode(self)
             self.power_toggle = PowerToggle(self)
             port_layout.addItem(self.power_toggle)
             port_layout.setAlignment(self.power_toggle, QtCore.Qt.AlignBottom)
