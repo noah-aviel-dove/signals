@@ -18,6 +18,8 @@ from signals.chain import (
 )
 
 
+# FIXME many of these should use PassThroughResult
+
 class Effect(BlockCachingEmitter, ImplicitChannels, abc.ABC):
 
     @classmethod

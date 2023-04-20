@@ -42,6 +42,9 @@ class SignalFlags(enum.Flag):
 
     AUDIO = GENERATOR | EFFECT | SOURCE_DEVICE
 
+    # When disabled, returns its input, instead of an empty result
+    PASSTHRU = enum.auto()
+
     # Can record its output.
     RECORDER = enum.auto()
 
