@@ -198,6 +198,7 @@ class Port(NodePartWidget):
 
     def clear(self) -> None:
         if self.input is not None:
+            # FIXME this failed once because cable.scene() returned None
             self.input.remove()
             self.input = None
 

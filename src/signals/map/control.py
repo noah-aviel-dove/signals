@@ -155,6 +155,7 @@ class DeviceAssociationCommand(LineCommand, StackCommand, SerializingCommand, ab
         return parser
 
     def serialize(self) -> str:
+        # FIXME need to include state
         return ' '.join((
             self.name(),
             str(self.at),
