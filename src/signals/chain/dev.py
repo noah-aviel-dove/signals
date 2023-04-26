@@ -125,7 +125,7 @@ class SinkDevice(Device, Receiver, ExplicitChannels):
         shape = Shape(channels=self._state.channels, frames=frames)
         loc = BlockLoc(position=self.frame_position, shape=shape, rate=self._stream.samplerate)
         block = self.input.request(loc)
-        outdata[:] = block
+        outdata[:, :shape.channels] = block
         self.frame_position += frames
 
     def destroy(self) -> None:
