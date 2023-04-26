@@ -112,6 +112,7 @@ class Node(NodePartWidget):
             *delegates,
             parent=parent
         )
+        self.setToolTip(parent.signal.cls_name)
 
 
 class EmitterNode(Node):
