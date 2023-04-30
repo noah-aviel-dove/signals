@@ -344,14 +344,12 @@ def port(name: PortName) -> _Port:
 
 
 class ExplicitChannels(Signal, abc.ABC):
-
     @state
     class State(Signal.State):
         channels: int = attr.ib(validator=attrs.validators.ge(1), default=1)
 
 
 class ExplicitChannelsEmitter(ExplicitChannels, Emitter, ABC):
-
     @state
     class State(ExplicitChannels.State, Emitter.State):
         pass
@@ -429,10 +427,33 @@ class BlockCachingEmitter(Emitter, abc.ABC):
         return result
 
 
+class ContinuousContextEmitter(Emitter, abc.ABC):
+
+    @abc.abstractmethod
+    def context_frames(self) -> int:
+        raise NotImplementedError
+
+    def __init__(self):
+        super().__init__()
+        self._context: np.ndarray | None = None
+        self._context_loc: BlockLoc | None = None
+
+    def context(self, request: Request) -> np.ndarray | None:
+        if self._context is None or self._context_loc.end_position != request.loc.position:
+            return None
+        else:
+            return self._context
+
+    def _get_result(self, request: Request) -> np.ndarray:
+        result = super()._get_result(request)
+        self._context = result[:, -self.context_frames():]
+        self._context_loc = request.loc
+        return result
+
+
 if False:
     class Epoch(Signal, abc.ABC):
 
         @classmethod
         def flags(cls) -> SignalFlags:
             return super().flags() | SignalFlags.EPOCH
-
