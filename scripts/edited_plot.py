@@ -21,7 +21,7 @@ def setup_audio() -> signals.chain.vis.Vis:
     rack.scan()
 
     hertz = signals.chain.fixed.Fixed()
-    hertz.state.value = np.array([[330]])
+    hertz.get_state().value = np.array([[330]])
     sound = signals.chain.osc.Sine()
     sound.hertz = hertz
     vis = signals.chain.vis.Wave()

@@ -162,7 +162,7 @@ class SigState(dict[str, SigStateValue]):
 
     @classmethod
     def from_signal(cls, signal: signals.chain.Signal) -> typing.Self:
-        return cls(attr.asdict(signal.state))
+        return cls(attr.asdict(signal.get_state()))
 
     def __str__(self) -> str:
         return str(self.items())
@@ -569,7 +569,7 @@ class Map:
             raise Empty(at)
 
     def _apply_state(self, at: Coordinates, signal: Signal, state: SigState):
-        new_state = copy.copy(signal.state)
+        new_state = copy.copy(signal.get_state())
         for k, v in state.items():
             try:
                 setattr(new_state, k, v)
@@ -577,4 +577,4 @@ class Map:
                 raise BadProperty(at, signal, k)
             except signals.chain.BadStateValue:
                 raise
-        signal.state = new_state
+        signal.set_state(new_state)

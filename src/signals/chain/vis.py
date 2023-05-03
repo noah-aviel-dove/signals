@@ -71,7 +71,7 @@ class Wave(Vis):
         max_amp: float = attr.ib(default=+1.)
 
     def _plot(self, block: np.ndarray, ax: plt.Axes) -> list[plt.Artist]:
-        ax.set_ylim(self.state.min_amp, self.state.max_amp)
+        ax.set_ylim(self._state.min_amp, self._state.max_amp)
         return ax.plot(block)
 
 
@@ -83,7 +83,7 @@ class Spec(Vis):
         bands: int = attr.ib(default=80)
 
     def _plot(self, block: np.ndarray, ax: plt.Axes) -> None:
-        ax.set_ylim(self.state.min_freq, self.state.max_freq)
+        ax.set_ylim(self._state.min_freq, self._state.max_freq)
         # sketch, this obviously does not work
         data = np.fft.rfft(block)
         return ax.bar(data)

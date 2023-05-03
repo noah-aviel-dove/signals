@@ -48,13 +48,13 @@ class Select(Scalar):
 
     def _get_result(self, request: Request) -> np.ndarray:
         channels = self.input.channels
-        if channels is not None and self.state.index < channels:
+        if channels is not None and self._state.index < channels:
             return super()._get_result(request)
         else:
             return self.empty_result()
 
     def _eval(self, request: Request) -> np.ndarray:
-        return self.input.forward(request)[:, self.state.index]
+        return self.input.forward(request)[:, self._state.index]
 
 
 class Merge(Shaper):

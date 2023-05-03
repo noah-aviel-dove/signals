@@ -170,12 +170,10 @@ class Signal(abc.ABC, signals.discovery.Named):
     def state_attrs(cls) -> typing.AbstractSet[str]:
         return attr.fields_dict(cls.State).keys()
 
-    @property
-    def state(self) -> State:
+    def get_state(self) -> State:
         return self._state
 
-    @state.setter
-    def state(self, new_state: State) -> None:
+    def set_state(self, new_state: State) -> None:
         if not isinstance(new_state, self.State):
             raise BadStateSchema(self, new_state)
         self._state = new_state
@@ -356,7 +354,7 @@ class ExplicitChannelsEmitter(ExplicitChannels, Emitter, ABC):
 
     @property
     def channels(self) -> int:
-        return self.state.channels
+        return self._state.channels
 
 
 class ImplicitChannels(Receiver, Emitter, abc.ABC):
@@ -380,7 +378,7 @@ class PassThroughResult(ImplicitChannels, ABC):
         return super().flags() | SignalFlags.PASSTHRU
 
     def _get_result(self, request: Request) -> np.ndarray:
-        return super()._get_result(request) if self.state.enabled else self.input.forward(request)
+        return super()._get_result(request) if self._state.enabled else self.input.forward(request)
 
 
 class NotCached(RuntimeError):
