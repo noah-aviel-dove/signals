@@ -1,9 +1,11 @@
 import abc
 import queue
 import sys
+import traceback
 import typing
 
 import attr as attr
+import attrs.validators
 import numpy as np
 import sounddevice as sd
 
@@ -12,6 +14,8 @@ from signals import (
 )
 from signals.chain import (
     BlockLoc,
+    ChainLayerError,
+    Emitter,
     ExplicitChannels,
     Receiver,
     Request,
@@ -20,9 +24,10 @@ from signals.chain import (
     port,
     state,
 )
-from signals.chain.files import (
-    RecordingEmitter,
-)
+
+
+class BadPlaybackState(ChainLayerError):
+    pass
 
 
 @attr.s(auto_attribs=True, frozen=True, kw_only=True, order=False)
@@ -88,52 +93,93 @@ class SinkDevice(Device, Receiver, ExplicitChannels):
     #  (so it doesn't have to be written to during `respond`).
     input = port('input')
 
-    @state
-    class State(ExplicitChannels.State):
-        # FIXME need more flexible validation because `channels` shouldn't be greater than self.info.max_channels
-        pass
-
     def __init__(self, info: DeviceInfo):
+
+        @state
+        class State(ExplicitChannels.State):
+            channels: int = attr.ib(default=1,
+                                    validator=attrs.validators.in_(range(1, info.max_input_channels + 1)))
+
+        self.State = State
+
         super().__init__(info=info)
         self.frame_position = 0
-        self._stream = sd.OutputStream(device=self.info.index,
-                                       callback=self._callback)
+        self._stream: sd.OutputStream | None = None
+
+    def set_state(self, new_state: 'SinkDevice.State') -> None:
+        super().set_state(new_state)
+        if self.is_open and self._stream.channels != new_state.channels:
+            active = self.is_active
+            self.close()
+            if active:
+                self.start()
+            else:
+                self.open()
 
     @classmethod
     def flags(cls) -> SignalFlags:
         return super().flags() | SignalFlags.SINK_DEVICE
 
+    def destroy(self) -> None:
+        if self.is_open:
+            self.close()
+        super().destroy()
+
+    @property
+    def is_open(self) -> bool:
+        return self._stream is not None
+
     @property
     def is_active(self) -> bool:
-        return self._stream.active
+        return self.is_open and self._stream.active
+
+    def open(self) -> None:
+        if self.is_open:
+            raise BadPlaybackState('The output stream is already open')
+        self._stream = sd.OutputStream(device=self.info.index,
+                                       callback=self._callback,
+                                       channels=self._state.channels)
+
+    def close(self) -> None:
+        if self.is_open:
+            self._stream.close()
+            self._stream = None
+        else:
+            raise BadPlaybackState('The output stream is not open')
 
     def start(self):
+        if not self.is_open:
+            self.open()
         self._stream.start()
 
     def stop(self):
-        self._stream.stop()
+        if self.is_active:
+            self._stream.stop()
+        else:
+            raise BadPlaybackState('The output stream is not active')
 
     def seek(self, position: int):
         self.frame_position = position * self._stream.blocksize
 
     def tell(self) -> int:
-        return self.frame_position / self._stream.blocksize
+        return self.frame_position // self._stream.blocksize
 
     def _callback(self, outdata: np.ndarray, frames: int, time: typing.Any, status: sd.CallbackFlags) -> None:
         if status:
             self.log(status)
         shape = Shape(channels=self._state.channels, frames=frames)
-        loc = BlockLoc(position=self.frame_position, shape=shape, rate=self._stream.samplerate)
-        block = self.input.request(loc)
-        outdata[:, :shape.channels] = block
+        loc = BlockLoc(position=self.frame_position, shape=shape, rate=int(self._stream.samplerate))
+        try:
+            block = self.input.request(loc)
+        except Exception:
+            self.log(traceback.format_exc())
+            raise sd.CallbackStop
+        else:
+            outdata[:, :shape.channels] = block
         self.frame_position += frames
 
-    def destroy(self) -> None:
-        self._stream.close()
-        super().destroy()
 
-
-class SourceDevice(Device, RecordingEmitter):
+class SourceDevice(Device, Emitter):
 
     def __init__(self, info: DeviceInfo):
         super().__init__(info)

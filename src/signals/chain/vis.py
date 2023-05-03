@@ -35,7 +35,7 @@ class Vis(PassThroughResult, abc.ABC):
             except queue.Empty:
                 break
             else:
-                # FIXME take part of a lbock to fill frames completely
+                # FIXME take part of a block to fill frames completely
                 queued_frames += Shape.of_array(block).frames
                 if queued_frames <= frames:
                     blocks.append(block)
@@ -49,7 +49,7 @@ class Vis(PassThroughResult, abc.ABC):
             x = 0
             for block in blocks[:-1]:
                 x += Shape.of_array(block).frames
-                result.append(ax.axvline(x))
+                result.append(ax.axvline(x, c='black'))
             result.extend(self._plot(np.concatenate(blocks), ax))
         ax.set_xlim(0, frames)
         return result

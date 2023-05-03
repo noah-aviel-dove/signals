@@ -42,17 +42,21 @@ class SignalFlags(enum.Flag):
 
     AUDIO = GENERATOR | EFFECT | SOURCE_DEVICE
 
-    # When disabled, returns its input, instead of an empty result
-    PASSTHRU = enum.auto()
-
-    # Can record its output.
-    RECORDER = enum.auto()
-
     # Has a Predetermined maximum duration.
     EPOCH = enum.auto()
 
-    # Supports visualization
+    # Facilitates recording
+    RECORDER = enum.auto()
+
+    # Facilitates visualization
     VIS = enum.auto()
+
+    # When disabled, returns its input, instead of an empty result
+    PASSTHRU = enum.auto()
+
+    # Never alters its input. When enabled, produces a side effect.
+    SIDE_EFFECT = VIS | RECORDER | PASSTHRU
+
 
     @classmethod
     def _missing_(cls, value: object) -> None:

@@ -67,4 +67,8 @@ class Merge(Shaper):
     right: Receiver.BoundPort = port('right')
 
     def _eval(self, request: Request) -> np.ndarray:
-        return np.hstack((self.left.forward(request), self.right.forward(request)))
+        # FIXME when one input is unplugged:
+        #  ValueError: all the input array dimensions for the concatenation axis must match exactly, but along dimension
+        #  0, the array at index 0 has size 384 and the array at index 1 has size 1
+        return np.hstack((self.left.request(request.loc.reslice(self.left.channels)),
+                          self.right.request(request.loc.reslice(self.right.channels))))

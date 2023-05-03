@@ -104,7 +104,7 @@ class BadStateValue(ChainLayerError):
         super().__init__(f'Value {value!r} is invalid for property {key!r} in schema {state.cls_name()!r}{reason}')
 
 
-@attr.s(auto_attribs=True, frozen=True, kw_only=True)
+@attr.s(auto_attribs=True, frozen=True, kw_only=True, order=False)
 class BlockLoc:
     position: int
     rate: int
@@ -130,6 +130,33 @@ class BlockLoc:
         else:
             return attr.evolve(self, shape=Shape(frames=new_frames,
                                                  channels=self.shape.channels))
+
+    def reslice(self, new_channels: int) -> typing.Self:
+        if new_channels == self.shape.channels:
+            return self
+        else:
+            return attr.evolve(self, shape=Shape(frames=self.shape.frames,
+                                                 channels=new_channels))
+
+    def __le__(self, other: 'BlockLoc') -> bool:
+        return (
+            self.rate == other.rate and
+            self.position >= other.position and
+            self.end_position <= other.end_position and
+            self.shape.channels <= other.shape.channels
+        )
+
+    def before(self, frames: int) -> typing.Self:
+        return attr.evolve(self,
+                           position=max(self.position - frames, 0),
+                           shape=Shape(frames=min(frames, self.position),
+                                       channels=self.shape.channels))
+
+    def after(self, frames: int) -> typing.Self:
+        return attr.evolve(self,
+                           position=self.end_position,
+                           shape=Shape(frames=frames,
+                                       channels=self.shape.channels))
 
 
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
@@ -278,6 +305,15 @@ class Receiver(Signal, abc.ABC):
         def forward_at_block_rate(self, request: Request) -> np.ndarray:
             return self.request(request.loc.resize(1))
 
+        def forward_with_context(self, request: Request, context_frames: int) -> np.ndarray:
+            blocks = []
+            loc = request.loc
+            if loc.position > 0:
+                blocks.append(self.request(request.loc.before(context_frames)))
+            blocks.append(self.forward(request))
+            blocks.append(self.request(request.loc.after(context_frames)))
+            return np.concatenate(blocks)
+
         @property
         def channels(self) -> int | None:
             if self.sig is None:
@@ -389,30 +425,28 @@ class BlockCachingEmitter(Emitter, abc.ABC):
 
     def __init__(self):
         super().__init__()
-        self._block_cache: np.ndarray | None = None
-        self._block_cache_position: int | None = None
-        self._block_cache_users: set[tuple[PortName, Receiver]] | None = None
+        self._block_cache: dict[BlockLoc, np.ndarray] = {}
+        self._max_cached_blocks = 16
 
     def _read_block_cache(self, request: Request) -> np.ndarray:
-        if (
-            self._block_cache is not None
-            and self._block_cache_position == request.loc.position
-            and self._block_cache.shape[0] >= request.loc.shape[0]
-        ):
-            return self._block_cache
-        else:
+        try:
+            return self._block_cache[request.loc]
+        except KeyError:
+            for loc, block in self._block_cache.items():
+                if request.loc <= loc:
+                    requested_shape = request.loc.shape
+                    start = request.loc.position - loc.position
+                    result = block[start:start+request.loc.shape.frames, :request.loc.shape.channels]
+                    shape = Shape.of_array(result)
+                    assert shape == requested_shape, (shape, requested_shape)
+                    return result
             raise NotCached
 
     def _write_block_cache(self, block: np.ndarray, request: Request) -> None:
-        if len(self._outputs) > 1:
-            self._block_cache = block
-            self._block_cache_position = request.loc.position
-            self._block_cache_users = self._outputs - {(request.port, request.requestor)}
-
-    def _use_block_cache(self, request: Request) -> None:
-        self._block_cache_users.remove((request.port, request.requestor))
-        if not self._block_cache_users:
-            self._block_cache = None
+        loc = attr.evolve(request.loc, shape=Shape.of_array(block))
+        self._block_cache[loc] = block
+        if len(self._block_cache) > self._max_cached_blocks:
+            self._block_cache.pop(next(iter(self._block_cache)))
 
     def respond(self, request: Request) -> np.ndarray:
         try:
@@ -420,32 +454,6 @@ class BlockCachingEmitter(Emitter, abc.ABC):
         except NotCached:
             result = super().respond(request)
             self._write_block_cache(result, request)
-        else:
-            self._use_block_cache(request)
-        return result
-
-
-class ContinuousContextEmitter(Emitter, abc.ABC):
-
-    @abc.abstractmethod
-    def context_frames(self) -> int:
-        raise NotImplementedError
-
-    def __init__(self):
-        super().__init__()
-        self._context: np.ndarray | None = None
-        self._context_loc: BlockLoc | None = None
-
-    def context(self, request: Request) -> np.ndarray | None:
-        if self._context is None or self._context_loc.end_position != request.loc.position:
-            return None
-        else:
-            return self._context
-
-    def _get_result(self, request: Request) -> np.ndarray:
-        result = super()._get_result(request)
-        self._context = result[:, -self.context_frames():]
-        self._context_loc = request.loc
         return result
 
 

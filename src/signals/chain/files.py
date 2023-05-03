@@ -12,34 +12,48 @@ from signals import (
 )
 from signals.chain import (
     BlockCachingEmitter,
-    ImplicitChannels,
+    Emitter,
+    PassThroughResult,
     Request,
     Signal,
-    port,
     state,
 )
 
 
-class SoundFileBase(Signal, abc.ABC):
+class SoundFileBase(Emitter, abc.ABC):
 
     def __init__(self):
         super().__init__()
-        self._buffer = None
+        self._buffer: sf.SoundFile | None = None
+
+    @state
+    class State(Emitter.State):
+
+        @staticmethod
+        def _validate_file_path(*args) -> None:
+            pass
+
+        path: str = attr.ib(default='/dev/null', validator=_validate_file_path)
 
     @property
-    @abc.abstractmethod
     def _file_path(self) -> pathlib.Path:
-        raise NotImplementedError
+        return pathlib.Path(self._state.path)
 
-    def _open(self, mode: str, position: int = 0) -> None:
+    def _open(self, mode: str, request: Request) -> None:
         if self._buffer is None:
-            self._buffer = sf.SoundFile(file=self._file_path, mode=mode)
-            self._open(mode, position)
-        elif self._buffer.mode != mode:
+            self._buffer = sf.SoundFile(file=self._file_path,
+                                        mode=mode,
+                                        samplerate=request.loc.rate,
+                                        channels=request.loc.shape.channels)
+            self._open(mode, request)
+        # FIXME fix handling of mismatch between request.channels and file.channels
+        elif self._buffer.mode != mode or self._buffer.samplerate != request.loc.rate:
             self._close()
-            self._open(mode, position)
+            self._open(mode, request)
         else:
             assert self._buffer.mode == mode, self._buffer
+            assert self._buffer.samplerate == request.loc.rate, self._buffer
+            position = request.loc.position
             sought_position = self._buffer.seek(position)
             assert position == sought_position, (position, sought_position)
 
@@ -49,75 +63,20 @@ class SoundFileBase(Signal, abc.ABC):
             self._buffer = None
 
     def destroy(self) -> None:
-        super().destroy()
         self._close()
+        super().destroy()
 
 
-class SoundFileReader(SoundFileBase, abc.ABC):
+class FileReader(SoundFileBase):
 
     def _read(self, request: Request) -> np.ndarray:
-        self._open('r', request.loc.position)
+        self._open('r', request)
         shape = request.loc.shape
-        return self._buffer.read(frames=shape.frames)
-
-
-class SoundFileWriter(SoundFileBase, abc.ABC):
-
-    def _write(self, request: Request, block: np.ndarray) -> None:
-        self._open('w', request.loc.position)
-        self._buffer.write(block)
-
-
-class RecordingEmitter(SoundFileReader, SoundFileWriter, BlockCachingEmitter, abc.ABC):
-
-    @classmethod
-    def flags(cls) -> SignalFlags:
-        return super().flags() | SignalFlags.RECORDER
-
-    @functools.cached_property
-    def _file_path(self) -> pathlib.Path:
-        return pathlib.Path(tempfile.mktemp(prefix='.'.join([
-            'signals',
-            'buffer_cache',
-            type(self).__name__,
-            id(self)
-        ])))
-
-
-# FIXME test performance with and without block cache
-class Recorder(RecordingEmitter, ImplicitChannels):
-
-    input = port('input')
-
-    def __init__(self):
-        super().__init__()
-        self.recording = False
-
-    def _eval(self, request: Request) -> np.ndarray:
-        return self.input.forward(request)
-
-    def _get_result(self, request: Request) -> np.ndarray:
-        if self.recording:
-            result = super()._get_result(request)
-            self._write(request, result)
-        else:
-            result = self._read(request)
-        return result
-
-
-# FIXME test performance with and without block cache
-class SamplePlayer(SoundFileReader, BlockCachingEmitter):
-    @state
-    class State(BlockCachingEmitter.State):
-        path: pathlib.Path = attr.ib(default='', converter=pathlib.Path)
+        return self._buffer.read(frames=shape.frames, always_2d=True)
 
     @classmethod
     def flags(cls) -> SignalFlags:
         return super().flags() | SignalFlags.GENERATOR
-
-    @property
-    def _file_path(self) -> pathlib.Path:
-        return self._state.path
 
     @property
     def channels(self) -> int:
@@ -125,3 +84,19 @@ class SamplePlayer(SoundFileReader, BlockCachingEmitter):
 
     def _eval(self, request: Request) -> np.ndarray:
         return self._read(request)
+
+
+class FileWriter(SoundFileBase, PassThroughResult):
+
+    @classmethod
+    def flags(cls) -> SignalFlags:
+        return super().flags() | SignalFlags.RECORDER
+
+    def _write(self, request: Request, block: np.ndarray) -> None:
+        self._open('w', request)
+        self._buffer.write(block)
+
+    def _eval(self, request: Request) -> np.ndarray:
+        result = self.input.forward(request)
+        self._write(request, result)
+        return result

@@ -10,7 +10,6 @@ from signals import (
 )
 from signals.chain import (
     BlockCachingEmitter,
-    ContinuousContextEmitter,
     ImplicitChannels,
     Receiver,
     Request,
@@ -61,7 +60,7 @@ class Amp(BinaryEffect):
         return np.copysign(input_ ** exp, input_)
 
 
-class CritFilter(Effect, ContinuousContextEmitter, abc.ABC):
+class CritFilter(Effect, abc.ABC):
     input: Receiver.BoundPort = port('input')
 
     order = 2
@@ -81,7 +80,6 @@ class CritFilter(Effect, ContinuousContextEmitter, abc.ABC):
         raise NotImplementedError
 
     def context_frames(self) -> int:
-        # Probably too high
         return 100
 
     def _filter(self,
@@ -89,46 +87,37 @@ class CritFilter(Effect, ContinuousContextEmitter, abc.ABC):
                 crit_1: np.ndarray,
                 crit_2: np.ndarray | None = None
                 ) -> np.ndarray:
-        return self._filter_data(input=self.input.forward(request),
-                                 context=self.context(request),
-                                 frame_rate=request.loc.rate,
-                                 crit_1=crit_1,
-                                 crit_2=crit_2)
-
-    def _filter_data(self,
-                     input: np.ndarray,
-                     context: np.ndarray | None,
-                     frame_rate: int,
-                     crit_1: np.ndarray,
-                     crit_2: np.ndarray | None,
-                     ) -> np.ndarray:
         assert Shape.of_array(crit_1).frames == 1
         if crit_2 is not None:
             assert Shape.of_array(crit_2).frames == 1
-        shape = Shape.of_array(input)
-        if context is None:
-            input_with_prefix = input
-        else:
-            input_with_prefix = np.concatenate((context, input))
+        context_frames = self.context_frames()
+        input_ = self.input.forward_with_context(request, context_frames)
+        shape = request.loc.shape
         result = np.empty(shape=shape)
+        rate = request.loc.rate
         for i in range(shape.channels):
             scaled_crit = np.array((crit_1[0, i], *(() if crit_2 is None else crit_2[0, i])), dtype=np.float)
-            scaled_crit /= frame_rate / 2
+            scaled_crit /= rate / 2
             scaled_crit.clip(0, 1, out=scaled_crit)
-            p = self._get_filter_params(self.type(), self.order, scaled_crit)
-            result[:, i] = scipy.signal.filtfilt(*p, input_with_prefix[:, i], axis=0)[-shape.frames:]
+            sos = self._get_sos(self.type(), self.order, scaled_crit, rate)
+            input_slice = slice(-(shape.frames + context_frames), -context_frames)
+            assert (input_slice.stop - input_slice.start) == shape.frames
+            result[:, i] = scipy.signal.sosfilt(sos, input_[:, i], axis=0)[input_slice]
         return result
 
-    def _get_filter_params(self,
-                           type_: Type,
-                           order: int,
-                           scaled_crit: typing.Sequence[float]
-                           ):
+    def _get_sos(self,
+                 type_: Type,
+                 order: int,
+                 scaled_crit: typing.Sequence[float],
+                 rate: float
+                 ):
         # Not caching this because the output must be mutable for `sosfilt`
         return scipy.signal.butter(
             N=order,
             Wn=scaled_crit,
+            #fs=rate,
             btype=type_,
+            output='sos'
         )
 
 
