@@ -28,7 +28,7 @@ class PatcherMap(signals.map.Map):
     def rm(self, at: signals.map.Coordinates) -> signals.map.LinkedSigInfo:
         info = super().rm(at)
 
-        self.patcher.get_square(at).set_content(None)
+        self.patcher.get_square(at).set_content(None, rm=True)
 
         return info
 
@@ -41,7 +41,6 @@ class PatcherMap(signals.map.Map):
         return result
 
     def mv(self, at1: signals.map.Coordinates, at2: signals.map.Coordinates) -> None:
-        # FIXME first container disappears if two are swapped
         super().mv(at1, at2)
 
         sq1 = self.patcher.get_square(at1)

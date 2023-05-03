@@ -327,7 +327,8 @@ class Cable(QtWidgets.QGraphicsPolygonItem):
         raise NotImplementedError
 
     def remove(self) -> None:
-        self.scene().removeItem(self)
+        if (scene := self.scene()) is not None:
+            scene.removeItem(self)
 
     def _update_points(self):
         self.setPolygon(

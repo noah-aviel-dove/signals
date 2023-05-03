@@ -119,14 +119,15 @@ class Square(GridItem):
             painter.setBrush(self.palette().dark())
             painter.drawRect(self.rect())
 
-    def set_content(self, content: NodeContainer | None):
-        if self.content is not None:
-            self.scene().removeItem(self.content)
-        if content is not None:
-            assert content.signal.at == self.at, content.signal
-            content.setParentItem(self)
-        self.content = content
-        self.update()
+    def set_content(self, content: NodeContainer | None, rm: bool = False):
+        if content is not self.content:
+            if self.content is not None and rm:
+                self.scene().removeItem(self.content)
+            if content is not None:
+                assert content.signal.at == self.at, content.signal
+                content.setParentItem(self)
+            self.content = content
+            self.update()
 
 
 class Patcher(QtWidgets.QGraphicsWidget):
