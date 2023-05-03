@@ -205,12 +205,12 @@ class HistoryCommand(LineCommand, abc.ABC):
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
 class PlaybackCommand(LineCommand, abc.ABC):
-    at: Coordinates
+    at: list[Coordinates]
 
     @classmethod
     def parser(cls) -> argparse.ArgumentParser:
         parser = super().parser()
-        parser.add_argument('at', type=Coordinates.parse)
+        parser.add_argument('at', type=Coordinates.parse, nargs='*')
         return parser
 
     @abc.abstractmethod
@@ -218,7 +218,16 @@ class PlaybackCommand(LineCommand, abc.ABC):
         raise NotImplementedError
 
     def affect(self, controller: 'Controller') -> None:
-        controller.map.playback(self.at, self.target_state())
+        target_state = self.target_state()
+        for at in self._targets(controller.map):
+            controller.map.playback(at, target_state)
+
+    def _targets(self, sig_map: Map) -> typing.Iterable[Coordinates]:
+        if self.at:
+            yield from self.at
+        else:
+            for sink in sig_map.iter_sinks():
+                yield sink.at
 
 
 class CommandError(MapLayerError):
