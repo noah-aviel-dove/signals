@@ -2,6 +2,7 @@ import abc
 import collections
 import enum
 import functools
+import itertools
 import typing
 
 import attr
@@ -11,17 +12,13 @@ import numpy as np
 from signals import (
     PortName,
     SignalFlags,
-    SignalName,
     SignalsError,
 )
+import signals.discovery
 
 
 class ChainLayerError(SignalsError):
     pass
-
-
-def empty_response() -> np.ndarray:
-    return np.zeros(shape=(1, 1))
 
 
 class Shape(typing.NamedTuple):
@@ -72,8 +69,21 @@ class Shape(typing.NamedTuple):
 class BadShape(ChainLayerError):
 
     def __init__(self, source: 'Signal', shape: tuple, constraint: tuple):
-        super().__init__(f'Invalid response from {source.cls_name!r}): '
+        super().__init__(f'Invalid response from {source.cls_name()!r}): '
                          f'Block with shape {shape} incompatible with requested shape {constraint}')
+
+
+class BadStateSchema(ChainLayerError):
+
+    def __init__(self, sig: 'Signal', state: 'Signal.State'):
+        super().__init__(f'Signal {sig.cls_name()!r} cannot accept state of type {state.cls_name()!r}')
+
+
+class BadStateValue(ChainLayerError):
+
+    def __init__(self, state: 'Signal.State', key: str, value: typing.Any, reason: typing.Any = None):
+        reason = '' if reason is None else f': ({reason})'
+        super().__init__(f'Value {value!r} is invalid for property {key!r} in schema {state.cls_name()!r}{reason}')
 
 
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
@@ -122,49 +132,54 @@ class RequestRate(enum.Enum):
     UNUSED_FRAME = enum.auto()
 
 
-SigStateValue = float | int | bool | str | np.ndarray
-SigState = dict[str, SigStateValue]
+state = attr.s(auto_attribs=True, frozen=False, kw_only=True, slots=True)
 
 
-class Signal(abc.ABC):
+class Signal(abc.ABC, signals.discovery.Named):
+    @state
+    class State(signals.discovery.Named):
+        pass
+
+    def __init__(self):
+        self._state = self.State()
 
     @classmethod
     @abc.abstractmethod
     def flags(cls) -> SignalFlags:
         return SignalFlags(0)
 
+    @classmethod
+    def state_attrs(cls) -> set[str]:
+        slots = set(itertools.chain.from_iterable(
+            getattr(cls_, '__slots__', ())
+            for cls_ in cls.State.mro())
+        )
+        slots.discard('__weakref__')
+        return slots
+
     @property
-    def cls_name(self) -> SignalName:
-        type_ = type(self)
-        return f'{type_.__module__}.{type_.__qualname__}'
+    def state(self) -> State:
+        return self._state
 
-    def get_state(self) -> SigState:
-        return {}
-
-    def set_state(self, state: SigState) -> None:
-        # FIXME need to validate values
-        ks = state.keys() - self.get_state().keys()
-        if ks:
-            raise KeyError(*ks)
-        for k, v in state.items():
-            setattr(self, k, v)
+    @state.setter
+    def state(self, new_state: State) -> None:
+        if not isinstance(new_state, self.State):
+            raise BadStateSchema(self, new_state)
+        self._state = new_state
 
     def destroy(self) -> None:
         pass
 
 
 class Emitter(Signal, abc.ABC):
+    @state
+    class State(Signal.State):
+        enabled: bool = attr.ib(default=True)
 
     def __init__(self):
         super().__init__()
         self._outputs: set[tuple[PortName, Receiver]] = set()
         self._last_request: typing.Optional[Request] = None
-        self.enabled = True
-
-    def get_state(self) -> SigState:
-        state = super().get_state()
-        state['enabled'] = self.enabled
-        return state
 
     @property
     def outputs_with_ports(self) -> typing.AbstractSet[tuple[PortName, 'Receiver']]:
@@ -192,8 +207,12 @@ class Emitter(Signal, abc.ABC):
     def _eval(self, request: Request) -> np.ndarray:
         raise NotImplementedError
 
+    @classmethod
+    def empty_result(cls) -> np.ndarray:
+        return np.zeros(Shape.unit())
+
     def _get_result(self, request: Request) -> np.ndarray:
-        return self._eval(request) if self.enabled else np.zeros(Shape.unit())
+        return self._eval(request) if self._state.enabled else self.empty_result()
 
     def respond(self, request: Request) -> np.ndarray:
         self._last_request = request
@@ -232,7 +251,7 @@ class Receiver(Signal, abc.ABC):
 
         def request(self, loc: BlockLoc) -> np.ndarray:
             if self.sig is None:
-                return empty_response()
+                return Emitter.empty_result()
             else:
                 return self._do_request(self._make_request(loc))
 

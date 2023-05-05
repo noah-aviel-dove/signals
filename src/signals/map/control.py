@@ -248,6 +248,7 @@ class BadRedo(BadHistory):
 
 
 class CommandSet:
+
     def __init__(self):
         cls = type(self)
         self._commands_by_alias: dict[str, type[LineCommand]] = {}
@@ -292,7 +293,7 @@ class CommandSet:
             parser = super().parser()
             parser.add_argument('at', type=Coordinates.parse)
             parser.add_argument('sig_cls', type=str)
-            parser.add_argument('sig_state', type=SigStateItem.parse, nargs='*')
+            parser.add_argument('sig_state', type=SigStateItem.parse, nargs='*', )
             return parser
 
         @classmethod
@@ -367,6 +368,7 @@ class CommandSet:
 
         @classmethod
         def process_args(cls, args: argparse.Namespace) -> dict:
+            # Unfortunately, can't validate state keys without knowing the signal type
             return dict(at=args.at,
                         state=SigState(args.sig_state))
 

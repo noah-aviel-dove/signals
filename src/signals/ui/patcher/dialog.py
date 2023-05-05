@@ -33,7 +33,7 @@ class AddSignal(SignalDialog):
                  at: signals.map.Coordinates,
                  parent=None,
                  flags=QtCore.Qt.WindowFlags()):
-        super().__init__(at=at, parent=parent, flags=flags)
+        super().__init__(parent=parent, flags=flags)
         self.setWindowTitle('Add signal')
 
         self.cls_name = None
@@ -89,12 +89,13 @@ class AddDevice(SignalDialog):
                  sinks: list,
                  parent=None,
                  flags=QtCore.Qt.WindowFlags()):
-        super().__init__(at=at, parent=parent, flags=flags)
+        super().__init__(parent=parent, flags=flags)
         self.setWindowTitle('Add device')
 
         self.sources_not_sinks = sources_not_sinks
         self.devices = []
         self.device = None
+        self.at = at
 
         devices_by_name = {
             device.name: device

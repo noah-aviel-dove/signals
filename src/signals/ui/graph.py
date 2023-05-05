@@ -198,12 +198,18 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
         self.placed_cables: set[PlacedCable] = set()
         self.power_toggle: PowerToggle | None = None
         self.ports: dict[PortName, Port] = {}
-        self.signal: signals.map.MappedSigInfo | None = None
+        self.signal: signals.map.MappedSigInfo = None
 
         self.set_signal(signal)
         self.setZValue(-1)
 
     def set_signal(self, signal: signals.map.MappedSigInfo):
+
+        for port in self.ports.values():
+            self.scene().removeItem(port)
+        if self.power_toggle is not None:
+            self.scene().removeItem(self.power_toggle)
+
         self.signal = signal
         self.ports = {port_name: Port(name=port_name) for port_name in signal.port_names()}
         self.node = Node(self)

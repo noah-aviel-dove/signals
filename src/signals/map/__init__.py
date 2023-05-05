@@ -12,14 +12,13 @@ import numpy as np
 
 from signals import (
     PortName,
+    SigStateValue,
     SignalFlags,
-    SignalName,
     SignalsError,
 )
 from signals.chain import (
     Emitter,
     Receiver,
-    SigStateValue,
     Signal,
 )
 import signals.chain.dev
@@ -102,37 +101,89 @@ class Coordinates:
 
 class SigStateItem(typing.NamedTuple):
     k: str
-    v: SigStateValue
+    v: signals.SigStateValue
 
     @classmethod
     def parse(cls, item: str) -> typing.Self:
+        """
+        >>> s = SigStateItem.parse('foo=1')
+        >>> s
+        SigStateItem(k='foo', v=1)
+        >>> str(s)
+        'foo=1'
+
+        >>> s = SigStateItem.parse('bar=[[1, 2, 3]]')
+        >>> s
+        SigStateItem(k='bar', v=array([[1, 2, 3]]))
+        >>> str(s)
+        'bar=[[1, 2, 3]]'
+        """
         k, v = item.split('=', 1)
-        v = json.loads(v)
-        if isinstance(v, list):
-            v = np.array(v)
+        v = cls.parse_value(v)
         return cls(k=k, v=v)
 
     def __str__(self) -> str:
-        return f'{self.k}={json.dumps(self.v)}'
+        return f'{self.k}={self.dump_value(self.v)}'
+
+    @classmethod
+    def parse_value(cls, v: str) -> signals.SigStateValue:
+        try:
+            v = json.loads(v)
+        except ValueError:
+            pass
+        else:
+            if isinstance(v, list):
+                v = np.array(v)
+        return v
+
+    @classmethod
+    def dump_value(cls, v: SigStateValue) -> str:
+        if isinstance(v, str):
+            return v
+        else:
+            if isinstance(v, np.ndarray):
+                v = v.tolist()
+            return json.dumps(v)
 
 
-class SigState(signals.chain.SigState):
-
-    def items(self):
-        return (SigStateItem(k=k, v=v) for k, v in super().items())
+class SigStateItems(tuple[SigStateItem]):
 
     def __str__(self) -> str:
-        return ' '.join(sorted(
-            str(item)
-            for item in self.items())
-        )
+        return ' '.join(map(str, self))
+
+
+class SigState(dict[str, SigStateValue]):
+
+    def items(self) -> SigStateItems:
+        items = SigStateItems(SigStateItem(k=k, v=v) for k, v in super().items())
+        return items
+
+    @classmethod
+    def from_signal(cls, signal: signals.chain.Signal) -> typing.Self:
+        return cls(attr.asdict(signal.state))
+
+    def __str__(self) -> str:
+        return str(self.items())
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
 class MappedSigInfo:
     at: Coordinates
-    cls_name: SignalName
+    cls_name: str
     state: SigState
+
+    def __attrs_post_init__(self):
+        all_keys = self.state_attr_names()
+        missing = all_keys ^ self.state.keys()
+        default_state = self._sig_cls.State()
+        for k in missing:
+            try:
+                v = getattr(default_state, k)
+            except AttributeError:
+                raise BadProperty(self.at, self.create(), k)
+            else:
+                self.state[k] = v
+        assert self.state.keys() == all_keys, (all_keys, self.state)
 
     @functools.cached_property
     def _sig_cls(self) -> type[signals.chain.Signal]:
@@ -146,6 +197,9 @@ class MappedSigInfo:
             return self._sig_cls.port_names()
         else:
             return []
+
+    def state_attr_names(self) -> set[str]:
+        return self._sig_cls.state_attrs()
 
     @property
     def flags(self) -> SignalFlags:
@@ -323,7 +377,7 @@ class BadProperty(BadName, MapError):
     def __init__(self, at: Coordinates, signal: Signal, prop: str):
         super().__init__(at,
                          f'{signal.cls_name} has no property {prop!r}.',
-                         options=signal.get_state().keys())
+                         options=signal.state_attrs())
 
 
 class BadReceiver(MapError):
@@ -333,6 +387,7 @@ class BadReceiver(MapError):
 
 
 class BadPlaybackTarget(MapError):
+
     def __init__(self, at: Coordinates):
         super().__init__(at, 'The signal is not a sink device')
 
@@ -345,9 +400,6 @@ class Map:
     def add(self, info: MappedSigInfo):
         sig = info.create()
         self._apply_state(info.at, sig, info.state)
-        # This is a weird smell. Perhaps we could populate a complete state when
-        # the command is created?
-        info.state.update(sig.get_state())
         if self._map.setdefault(info.at, sig) is not sig:
             raise NonEmpty(info.at)
 
@@ -389,8 +441,8 @@ class Map:
                                                    device=sig.info)
         else:
             result = LinkedSigInfo(at=at,
-                                   cls_name=sig.cls_name,
-                                   state=SigState(sig.get_state()),
+                                   cls_name=sig.cls_name(),
+                                   state=state,
                                    links_in=inputs,
                                    links_out=outputs)
 
@@ -398,7 +450,7 @@ class Map:
 
     def edit(self, at: Coordinates, state: SigState) -> SigState:
         sig = self._find(at)
-        old_state = SigState(sig.get_state())
+        old_state = SigState.from_signal(sig)
         self._apply_state(at, sig, state)
         return old_state
 
@@ -463,8 +515,8 @@ class Map:
         for at, sig in self._map.items():
             if not isinstance(sig, signals.chain.dev.Device):
                 yield MappedSigInfo(at=at,
-                                    cls_name=sig.cls_name,
-                                    state=SigState(sig.get_state()))
+                                    cls_name=sig.cls_name(),
+                                    state=SigState.from_signal(sig))
 
     def iter_connections(self) -> typing.Iterator[ConnectionInfo]:
         for at, sig in self._map.items():
@@ -478,14 +530,14 @@ class Map:
             if isinstance(sig, signals.chain.dev.SourceDevice):
                 yield MappedDevInfo.for_source(at=at,
                                                device=sig.info,
-                                               state=SigState(sig.get_state()))
+                                               state=SigState.from_signal(sig))
 
     def iter_sinks(self) -> typing.Iterator[MappedDevInfo]:
         for at, sig in self._map.items():
             if isinstance(sig, signals.chain.dev.SinkDevice):
                 yield MappedDevInfo.for_source(at=at,
                                                device=sig.info,
-                                               state=SigState(sig.get_state()))
+                                               state=SigState.from_signal(sig))
 
     def _find(self, at: Coordinates) -> Signal:
         try:

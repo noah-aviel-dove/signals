@@ -15,9 +15,9 @@ from signals.chain import (
     Receiver,
     Request,
     Shape,
-    SigState,
     Signal,
     port,
+    state,
 )
 from signals.chain.files import (
     RecordingEmitter,
@@ -87,17 +87,16 @@ class SinkDevice(Device, Receiver):
     #  (so it doesn't have to be written to during `respond`).
     input = port('input')
 
+    @state
+    class State(Signal.State):
+        # FIXME need more flexible validation because this shouldn't be greater than self.info.max_channels
+        channels: int = attr.ib(default=2, validator=attr.validators.ge(1))
+
     def __init__(self, info: DeviceInfo):
         super().__init__(info=info)
         self.frame_position = 0
-        self.channels = 2
         self._stream = sd.OutputStream(device=self.info.index,
                                        callback=self._callback)
-
-    def get_state(self) -> SigState:
-        state = super().get_state()
-        state['channels'] = self.channels
-        return state
 
     @classmethod
     def flags(cls) -> SignalFlags:
@@ -122,9 +121,7 @@ class SinkDevice(Device, Receiver):
     def _callback(self, outdata: np.ndarray, frames: int, time: typing.Any, status: sd.CallbackFlags) -> None:
         if status:
             self.log(status)
-        # FIXME the default output device has 32 channels; we definitely don't
-        #  need to fill all of those all of the time
-        shape = Shape(channels=self._stream.channels, frames=frames)
+        shape = Shape(channels=self._state.channels, frames=frames)
         loc = BlockLoc(position=self.frame_position, shape=shape, rate=self._stream.samplerate)
         block = self.input.request(loc)
         outdata[:] = block
@@ -157,10 +154,10 @@ class SourceDevice(Device, RecordingEmitter):
         if frames:
             old_position = self.position
             self.position += frames
-            # FIXME why is copy necessary?
             self.q.put((BlockLoc(position=old_position,
                                  shape=Shape.of_array(indata),
                                  rate=self._stream.samplerate),
+                        # FIXME why is copy necessary?
                         indata.copy()))
         else:
             raise sd.CallbackStop

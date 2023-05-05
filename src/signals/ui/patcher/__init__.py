@@ -123,6 +123,7 @@ class Square(GridItem):
         if signal is None:
             if self.content is not None:
                 self.scene().removeItem(self.content)
+                self.content = None
                 self.update()
         else:
             assert signal.at == self.at, signal

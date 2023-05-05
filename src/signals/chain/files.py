@@ -3,6 +3,7 @@ import functools
 import pathlib
 import tempfile
 
+import attr
 import numpy as np
 import soundfile as sf
 
@@ -13,9 +14,9 @@ from signals.chain import (
     BlockCachingEmitter,
     PassThroughShape,
     Request,
-    SigState,
     Signal,
     port,
+    state,
 )
 
 
@@ -105,10 +106,9 @@ class Recorder(RecordingEmitter, PassThroughShape):
 
 # FIXME test performance with and without block cache
 class SamplePlayer(SoundFileReader, BlockCachingEmitter):
-
-    def __init__(self):
-        super().__init__()
-        self.path = None
+    @state
+    class State(BlockCachingEmitter.State):
+        path: pathlib.Path = attr.ib(default='', converter=pathlib.Path)
 
     @classmethod
     def flags(cls) -> SignalFlags:
@@ -116,7 +116,7 @@ class SamplePlayer(SoundFileReader, BlockCachingEmitter):
 
     @property
     def _file_path(self) -> pathlib.Path:
-        return self.path
+        return self._state.path
 
     @property
     def channels(self) -> int:
@@ -124,8 +124,3 @@ class SamplePlayer(SoundFileReader, BlockCachingEmitter):
 
     def _eval(self, request: Request) -> np.ndarray:
         return self._read(request)
-
-    def get_state(self) -> SigState:
-        state = super().get_state()
-        state['path'] = self.path
-        return state

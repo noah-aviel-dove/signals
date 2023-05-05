@@ -8,18 +8,20 @@ from PyQt5 import (
     QtWidgets,
 )
 import attr
+import numpy as np
 
 import signals.ui.theme
 
-
 PortName = str
-SignalName = str
 
 
 class SignalsError(Exception):
 
     def __str__(self) -> str:
         return ' '.join((type(self).__name__, *self.args))
+
+
+SigStateValue = float | int | bool | str | np.ndarray
 
 
 class SignalFlags(enum.Flag):
@@ -55,6 +57,7 @@ class SignalFlags(enum.Flag):
         return super()._missing_(value)
 
 
+# FIXME banish these men to a new module
 class _Env:
 
     @property
