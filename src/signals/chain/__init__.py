@@ -218,6 +218,11 @@ class Emitter(Signal, abc.ABC):
         self._last_request = request
         return self._get_result(request)
 
+    def destroy(self) -> None:
+        super().destroy()
+        for port_name, receiver in tuple(self.outputs_with_ports):
+            delattr(receiver, port_name)
+
 
 class Receiver(Signal, abc.ABC):
     class BoundPort:
@@ -298,9 +303,8 @@ class Receiver(Signal, abc.ABC):
         return result
 
     def destroy(self) -> None:
-        # FIXME this is technically no longer needed thanks to the map layer,
-        # but still maybe a good idea?
-        for port_name, bound_port in self._ports.items():
+        super().destroy()
+        for port_name, bound_port in tuple(self._ports.items()):
             if bound_port:
                 delattr(self, port_name)
 

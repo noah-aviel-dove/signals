@@ -292,6 +292,9 @@ class Cable(QtWidgets.QGraphicsPolygonItem):
 
     def input_pos(self) -> QtCore.QPointF:
         node = self.container.node
+        # FIXME when a deletion/disconnection is undone, the parent hasn't been
+        #  fully added to the scene yet and the rect is empty, causing this to
+        #  snap to (0, 0)
         r = node.rect()
         return self.mapFromItem(node, QtCore.QPointF(r.center().x(), r.bottom()))
 

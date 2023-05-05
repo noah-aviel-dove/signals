@@ -535,9 +535,9 @@ class Map:
     def iter_sinks(self) -> typing.Iterator[MappedDevInfo]:
         for at, sig in self._map.items():
             if isinstance(sig, signals.chain.dev.SinkDevice):
-                yield MappedDevInfo.for_source(at=at,
-                                               device=sig.info,
-                                               state=SigState.from_signal(sig))
+                yield MappedDevInfo.for_sink(at=at,
+                                             device=sig.info,
+                                             state=SigState.from_signal(sig))
 
     def _find(self, at: Coordinates) -> Signal:
         try:

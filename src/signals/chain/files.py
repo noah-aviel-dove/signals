@@ -44,8 +44,9 @@ class SoundFileBase(Signal, abc.ABC):
             assert position == sought_position, (position, sought_position)
 
     def _close(self) -> None:
-        self._buffer.close()
-        self._buffer = None
+        if self._buffer is not None:
+            self._buffer.close()
+            self._buffer = None
 
     def destroy(self) -> None:
         super().destroy()
