@@ -92,7 +92,6 @@ class Square(GridItem):
     def __init__(self, at: signals.map.Coordinates, parent=None):
         super().__init__(context=GridContext.body, parent=parent)
         self.at = at
-        # FIXME add context menu
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.RightButton)
         self.setAcceptHoverEvents(True)
         self.content: NodeContainer | None = None
@@ -107,6 +106,13 @@ class Square(GridItem):
         self.setActive(False)
         self.update()
 
+    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
+        assert event.button() == QtCore.Qt.MouseButton.RightButton, event.button()
+        # FIXME add context menu
+        #  Perhaps the actions defined in the window need to be moved to the Patcher?
+        #  It's very difficult for graphics widgets to communicate with the root window
+        print(type(self.window()))
+
     def paint(self,
               painter: QtGui.QPainter,
               option: QtWidgets.QStyleOptionGraphicsItem,
@@ -119,20 +125,20 @@ class Square(GridItem):
             painter.setBrush(self.palette().dark())
             painter.drawRect(self.rect())
 
-    def set_content(self, signal: signals.map.MappedSigInfo | None):
-        if signal is None:
-            if self.content is not None:
+    def set_content(self, content: NodeContainer | None, rm: bool = False):
+        if content is not self.content:
+            if self.content is not None and rm:
                 self.scene().removeItem(self.content)
-                self.update()
-        else:
-            assert signal.at == self.at, signal
-            self.content = NodeContainer(signal, parent=self)
+            if content is not None:
+                assert content.signal.at == self.at, content.signal
+                content.setParentItem(self)
+            self.content = content
             self.update()
 
 
 class Patcher(QtWidgets.QGraphicsWidget):
 
-    map_changed = QtCore.pyqtSignal(object)
+    new_container = QtCore.pyqtSignal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)

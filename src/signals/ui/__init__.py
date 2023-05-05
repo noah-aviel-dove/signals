@@ -5,12 +5,6 @@ from PyQt5 import (
 )
 
 
-def dbgrect(self, p, c):
-    p.setPen(c)
-    p.drawRect(self.rect())
-    p.drawText(self.rect(), str(self.zValue()))
-
-
 QObjectMeta = type(QtCore.QObject)
 
 

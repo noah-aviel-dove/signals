@@ -58,3 +58,14 @@ def iter_objects(module: types.ModuleType,
     for k, v in vars(module).items():
         if include_private or not k.startswith('_'):
             yield k, v
+
+
+def qualname(type_: type) -> str:
+    return f'{type_.__module__}.{type_.__qualname__}'
+
+
+class Named:
+
+    @classmethod
+    def cls_name(cls) -> str:
+        return qualname(cls)
