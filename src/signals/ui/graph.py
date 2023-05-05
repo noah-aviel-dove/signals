@@ -189,6 +189,7 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
     power_toggled = QtCore.pyqtSignal(object)
 
     def __init__(self,
+                 # Consider using a `LinkedSigInfo` to reduce redundancy
                  signal: signals.map.MappedSigInfo,
                  parent: typing.Optional[QtWidgets.QGraphicsItem] = None):
         super().__init__(parent=parent)

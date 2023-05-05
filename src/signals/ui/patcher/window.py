@@ -133,6 +133,13 @@ class Window(QtWidgets.QMainWindow):
     def add_sink_at_active(self) -> None:
         self.add_device_at_active(is_source=False)
 
+    def edit_at_active(self) -> None:
+        sq = self._active_square(empty=False)
+        if sq:
+            dialog = signals.ui.patcher.dialog.EditSignal(sq.content.signal)
+            dialog.accepted.connect(lambda: self._edit_signal(dialog.info()))
+            dialog.open()
+
     def new(self):
         if self._discard_prompt():
             self._clear()
@@ -230,6 +237,9 @@ class Window(QtWidgets.QMainWindow):
 
     def _remove_signal(self, at: signals.map.Coordinates):
         self.controller.map_command(self.controller.command_set.Remove(at=at))
+
+    def _edit_signal(self, signal: signals.map.MappedSigInfo):
+        self.controller.map_command(self.controller.command_set.Edit(at=signal.at, state=signal.state))
 
     def _undo(self):
         try:
