@@ -1,3 +1,4 @@
+import enum
 import functools
 import json
 import pathlib
@@ -7,11 +8,63 @@ from PyQt5 import (
     QtWidgets,
 )
 import attr
+import numpy as np
 
 import signals.ui.theme
-import signals.chain
+
+PortName = str
 
 
+class SignalsError(Exception):
+
+    def __str__(self) -> str:
+        return ' '.join((type(self).__name__, *self.args))
+
+
+SigStateValue = float | int | bool | str | np.ndarray
+
+
+class SignalFlags(enum.Flag):
+    # It is permissible for this signal to form cycles.
+    CYCLIC = enum.auto()
+
+    SINK_DEVICE = enum.auto()
+
+    SOURCE_DEVICE = enum.auto()
+
+    DEVICE = SINK_DEVICE | SOURCE_DEVICE
+
+    # Generates audio from non-audio input.
+    GENERATOR = enum.auto()
+
+    # Generates audio from audio.
+    EFFECT = enum.auto()
+
+    AUDIO = GENERATOR | EFFECT | SOURCE_DEVICE
+
+    # Has a Predetermined maximum duration.
+    EPOCH = enum.auto()
+
+    # Facilitates recording
+    RECORDER = enum.auto()
+
+    # Facilitates visualization
+    VIS = enum.auto()
+
+    # When disabled, returns its input, instead of an empty result
+    PASSTHRU = enum.auto()
+
+    # Never alters its input. When enabled, produces a side effect.
+    SIDE_EFFECT = VIS | RECORDER | PASSTHRU
+
+
+    @classmethod
+    def _missing_(cls, value: object) -> None:
+        # FIXME validate implications and conflicts
+        return super()._missing_(value)
+
+
+# FIXME banish these men to a new module
 class _Env:
 
     @property

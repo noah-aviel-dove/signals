@@ -2,17 +2,23 @@ import functools
 import pathlib
 
 from PyQt5 import (
+    QtCore,
     QtGui,
     QtWidgets,
 )
 
+import PyQtCmd
+import attr
+
+from signals import SignalFlags
 import signals.map.control
 import signals.ui.patcher
 import signals.ui.patcher.map
 import signals.ui.patcher.dialog
 import signals.ui.theme
-import signals.ui.view
+import signals.ui.scene
 import signals.ui.graph
+import signals.ui.vis
 
 
 class Window(QtWidgets.QMainWindow):
@@ -23,12 +29,12 @@ class Window(QtWidgets.QMainWindow):
         self.saved_hash = None
         self.patcher = signals.ui.patcher.Patcher()
         self.controller = signals.map.control.Controller(
-            interactive=False,
+            interactive=True,
             map=signals.ui.patcher.map.PatcherMap(self.patcher)
         )
 
         self._set_title()
-        self.patcher.map_changed.connect(self._on_map_changed)
+        self.patcher.new_container.connect(self._on_new_container)
 
         file = self.menuBar().addMenu(self.tr('&File'))
         file.addAction(self._create_action('New', 'Ctrl+N', self.new))
@@ -52,10 +58,36 @@ class Window(QtWidgets.QMainWindow):
         add_source = self._create_action('Add input device', 'Alt+I', self.add_source_at_active)
         self.addAction(add_source)
 
-        scene = signals.ui.view.Scene(self)
+        copy_signal = self._create_action('Copy signal', 'Ctrl+C', self.copy_at_active)
+        self.addAction(copy_signal)
+        paste_signal = self._create_action('Paste signal', 'Ctrl+V', self.paste_at_active)
+        self.addAction(paste_signal)
+        cut_signal = self._create_action('Cut signal', 'Ctrl+X', lambda: self.copy_at_active(cut=True))
+        self.addAction(cut_signal)
+
+        def interpreter(line: str) -> bool:
+            self.controller.onecmd(line)
+            return False
+
+        console = PyQtCmd.QCmdConsole(interpreter=interpreter)
+        console_dock = QtWidgets.QDockWidget()
+        console_dock.setWidget(console)
+        signals.ui.theme.register(console_dock)
+
+        self.vis_rack = signals.ui.vis.VisRack()
+        vis_dock = QtWidgets.QDockWidget()
+        vis_dock.setWidget(self.vis_rack)
+        signals.ui.theme.register(vis_dock)
+
+        self.controller.stdout = console.stdout
+        self.controller.stdin = None
+
+        scene = signals.ui.scene.Scene(self)
         scene.addItem(self.patcher)
         view = QtWidgets.QGraphicsView(scene)
         self.setCentralWidget(view)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, console_dock)
+        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, vis_dock)
         self.setStatusBar(QtWidgets.QStatusBar())
 
         signals.ui.theme.register(self.menuBar())
@@ -117,6 +149,34 @@ class Window(QtWidgets.QMainWindow):
     def add_sink_at_active(self) -> None:
         self.add_device_at_active(is_source=False)
 
+    def edit_at_active(self) -> None:
+        sq = self._active_square(empty=False)
+        if sq:
+            dialog = signals.ui.patcher.dialog.EditSignal(sq.content.signal)
+            dialog.accepted.connect(lambda: self._edit_signal(dialog.info()))
+            dialog.open()
+
+    _signal_mime_type = 'application/prs.signals.signal'
+
+    def copy_at_active(self, cut: bool = False) -> None:
+        sq = self._active_square(empty=False)
+        if sq is not None:
+            add_cmd = self.controller.command_set.Add(signal=sq.content.signal)
+            data = QtCore.QMimeData()
+            data.setData(self._signal_mime_type, add_cmd.serialize().encode())
+            QtGui.QGuiApplication.clipboard().setMimeData(data)
+            if cut:
+                self.controller.push(self.controller.command_set.Remove(at=sq.at))
+
+    def paste_at_active(self) -> None:
+        sq = self._active_square(empty=True)
+        data = QtGui.QGuiApplication.clipboard().mimeData()
+        if sq is not None and data.hasFormat(self._signal_mime_type):
+            add_cmd = self.controller.parse_line(data.data(self._signal_mime_type).data().decode())
+            assert isinstance(add_cmd, self.controller.command_set.Add), add_cmd
+            add_cmd = attr.evolve(add_cmd, signal=attr.evolve(add_cmd.signal, at=sq.at))
+            self.controller.push(add_cmd)
+
     def new(self):
         if self._discard_prompt():
             self._clear()
@@ -126,21 +186,18 @@ class Window(QtWidgets.QMainWindow):
         # FIXME create new empty window
         raise NotImplementedError
 
-    def save(self):
+    def save(self) -> None:
         if self.path is None:
-            self.path = self.save_as()
+            self.save_as()
         else:
             self._save(self.path)
 
-    def save_as(self) -> pathlib.Path | None:
+    def save_as(self) -> None:
         path, _ = QtWidgets.QFileDialog().getSaveFileName(parent=self,
                                                           caption='Save as...')
         if path:
-            path = pathlib.Path(path)
-            self._save(path)
-            return path
-        else:
-            return None
+            self.path = pathlib.Path(path)
+            self.save()
 
     def open(self):
         if self._discard_prompt():
@@ -176,13 +233,13 @@ class Window(QtWidgets.QMainWindow):
         if self.is_dirty():
             dialog = QtWidgets.QMessageBox()
             dialog.setText('Discard unsaved changes?')
-            dialog.setStandardButtons(dialog.Yes | dialog.No)
-            return dialog.exec() == dialog.Yes
+            dialog.setStandardButtons(dialog.Discard | dialog.Cancel)
+            return dialog.exec() == dialog.Discard
         else:
             return True
 
     def _save(self, path: pathlib.Path):
-        self.controller.map_command(self.controller.command_set.Save(path=path))
+        self.controller.command_set.Save(path=path).affect(self.controller)
         self.statusBar().showMessage(f'Saved as {path}')
         self._set_clean_state()
 
@@ -210,10 +267,13 @@ class Window(QtWidgets.QMainWindow):
             return sq
 
     def _add_signal(self, signal: signals.map.MappedSigInfo):
-        self.controller.map_command(self.controller.command_set.Add(signal=signal))
+        self.controller.push(self.controller.command_set.Add(signal=signal))
 
     def _remove_signal(self, at: signals.map.Coordinates):
-        self.controller.map_command(self.controller.command_set.Remove(at=at))
+        self.controller.push(self.controller.command_set.Remove(at=at))
+
+    def _edit_signal(self, signal: signals.map.MappedSigInfo):
+        self.controller.push(self.controller.command_set.Edit(at=signal.at, state=signal.state))
 
     def _undo(self):
         try:
@@ -231,31 +291,42 @@ class Window(QtWidgets.QMainWindow):
         self.saved_modcount = self.controller.modcount
         self.saved_hash = self.controller.hash()
 
-    def _on_map_changed(self, new_container: signals.ui.graph.NodeContainer | None) -> None:
-        if new_container is not None:
-            # FIXME connect power toggle
-            for slot in new_container.slots.values():
-                slot.input_changed.connect(self._on_slot_changed)
+    def _on_new_container(self, new_container: signals.ui.graph.NodeContainer) -> None:
+        # FIXME connect power toggle
+        for port in new_container.ports.values():
+            port.input_changed.connect(self.on_port_changed)
 
-    def _on_slot_changed(self,
-                         slot: signals.ui.graph.Slot,
-                         new_input: signals.ui.graph.PlacingCable | None,
-                         event: QtWidgets.QGraphicsSceneMouseEvent
-                         ) -> None:
-        old_input = slot.input
+        if new_container.signal.flags & SignalFlags.VIS:
+            self.add_vis(new_container)
+
+    def on_port_changed(self,
+                        port: signals.ui.graph.Port,
+                        new_input: signals.ui.graph.PlacingCable | None,
+                        event: QtWidgets.QGraphicsSceneMouseEvent
+                        ) -> None:
+        old_input = port.input
         old_input_container = None if old_input is None else old_input.container
-        output = signals.map.SlotInfo(slot=slot.slot, at=slot.container.signal.at)
+        output = signals.map.PortInfo(port=port.name, at=port.container.signal.at)
         command_set = self.controller.command_set
         if new_input is None:
-            cmd_ = command_set.Disconnect(slot=output)
+            cmd_ = command_set.Disconnect(port=output)
         else:
             input = new_input.container.signal
             cmd_ = command_set.Connect(connection=signals.map.ConnectionInfo(input_at=input.at, output=output))
 
-        self.controller.map_command(cmd_)
+        self.controller.push(cmd_)
 
         if new_input is not None:
             new_input.remove()
 
         if old_input_container is not None:
             signals.ui.graph.PlacingCable(old_input_container, event.scenePos())
+
+    def add_vis(self, container: signals.ui.graph.NodeContainer) -> None:
+        vis = signals.ui.vis.VisCanvas(self.controller.map, container.signal.at)
+
+        def retarget_vis():
+            vis.at = container.signal.at
+
+        container.moved.connect(retarget_vis)
+        self.vis_rack.add(vis)

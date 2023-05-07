@@ -1,0 +1,20 @@
+sink 7a default
++ 1a signals.chain.fixed.Fixed enabled=true value=[[440]]
++ 1b signals.chain.fixed.Fixed enabled=true value=[[0.2]]
++ 1c signals.chain.fixed.Fixed enabled=true value=[[600]]
++ 2a signals.chain.osc.Triangle enabled=true
++ 3a signals.chain.fx.Gain enabled=true
++ 4b signals.chain.fx.LowPass enabled=true
++ 5a signals.chain.shape.Merge enabled=true
++ 5c signals.chain.files.FileWriter enabled=true path=/tmp/lowpass_test.wav
++ 6a signals.chain.vis.Wave enabled=true min_amp=-1.0 max_amp=1.0
+> 1a 2a.hertz
+> 1b 3a.right
+> 1c 4b.cutoff
+> 2a 3a.left
+> 3a 4b.input
+> 3a 5a.right
+> 4b 5a.left
+> 4b 5c.input
+> 5c 6a.input
+> 6a 7a.input

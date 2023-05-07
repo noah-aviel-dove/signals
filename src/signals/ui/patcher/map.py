@@ -1,11 +1,12 @@
-import attr
+import matplotlib.pyplot as plt
 
 import signals.map
+from signals.ui.graph import (
+    NodeContainer,
+    PlacedCable,
+)
 from signals.ui.patcher import (
     Patcher,
-)
-from signals.ui.graph import (
-    PlacedCable,
 )
 
 
@@ -20,14 +21,14 @@ class PatcherMap(signals.map.Map):
 
         self.patcher.expand_grid_to(info.at)
         sq = self.patcher.get_square(info.at)
-        sq.set_content(info)
-        self.patcher.map_changed.emit(sq.content)
+        container = NodeContainer(info)
+        sq.set_content(container)
+        self.patcher.new_container.emit(container)
 
     def rm(self, at: signals.map.Coordinates) -> signals.map.LinkedSigInfo:
         info = super().rm(at)
 
-        self.patcher.get_square(at).set_content(None)
-        self.patcher.map_changed.emit(None)
+        self.patcher.get_square(at).set_content(None, rm=True)
 
         return info
 
@@ -35,9 +36,7 @@ class PatcherMap(signals.map.Map):
         result = super().edit(at, state)
 
         container = self.patcher.get_square(at).content
-        container.set_signal(attr.evolve(container.signal, state=state))
-
-        self.patcher.map_changed.emit(container)
+        container.change_state(state)
 
         return result
 
@@ -46,35 +45,34 @@ class PatcherMap(signals.map.Map):
 
         sq1 = self.patcher.get_square(at1)
         sq2 = self.patcher.get_square(at2)
-        container = sq1.content
-        sq1.set_content(None)
-        container.set_signal(attr.evolve(container.signal, at=at2))
-        sq2.set_content(container)
+        container1 = sq1.content
+        container2 = sq2.content
 
-        self.patcher.map_changed.emit(container)
+        if container1 is not None:
+            container1.relocate(sq2, at2)
+        if container2 is not None:
+            container2.relocate(sq1, at1)
+
+        sq1.set_content(container2)
+        sq2.set_content(container1)
 
     def connect(self, info: signals.map.ConnectionInfo) -> signals.map.Coordinates | None:
         result = super().connect(info)
 
         new_input_container = self.patcher.get_square(info.input_at).content
         output_container = self.patcher.get_square(info.output.at).content
-        slot = output_container.slots[info.output.slot]
-        if slot.input is not None:
-            slot.input.remove()
-        slot.input = PlacedCable(new_input_container, slot)
-
-        self.patcher.map_changed.emit(None)
+        port = output_container.ports[info.output.port]
+        if port.input is not None:
+            port.input.remove()
+        port.input = PlacedCable(new_input_container, port)
 
         return result
 
-    def disconnect(self, slot_info: signals.map.SlotInfo) -> signals.map.Coordinates:
-        result = super().disconnect(slot_info)
+    def disconnect(self, info: signals.map.PortInfo) -> signals.map.Coordinates:
+        result = super().disconnect(info)
 
-        output_container = self.patcher.get_square(slot_info.at).content
-        slot = output_container.slots[slot_info.slot]
-        slot.input.remove()
-        slot.input = None
-
-        self.patcher.map_changed.emit(None)
+        output_container = self.patcher.get_square(info.at).content
+        port = output_container.ports[info.port]
+        port.clear()
 
         return result

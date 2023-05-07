@@ -1,9 +1,13 @@
+import copy
 import typing
 
 from PyQt5 import (
     QtCore,
+    QtGui,
     QtWidgets,
 )
+import attr
+import numpy as np
 
 import signals.map
 import signals.ui.theme
@@ -13,16 +17,102 @@ class SignalDialog(QtWidgets.QDialog):
 
     def __init__(self,
                  *,
-                 at: signals.map.Coordinates,
                  parent=None,
                  flags=QtCore.Qt.WindowFlags()
                  ):
         super().__init__(parent=parent, flags=flags)
-        self.at = at
         self.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
         signals.ui.theme.register(self)
 
         # FIXME this can be fleshed out with more consolidation of behavior
+
+
+class SigStateValidator(QtGui.QValidator):
+
+    def __init__(self, init_value: signals.SigStateValue, parent=None):
+        super().__init__(parent=parent)
+        self.init_value = init_value
+
+    def convert(self, input: str) -> signals.SigStateValue:
+        if isinstance(self.init_value, str):
+            result = input
+        else:
+            result = signals.map.SigStateItem.parse_value(input)
+            if isinstance(self.init_value, (float, bool)) and isinstance(result, int):
+                result = type(self.init_value)(result)
+            elif (
+                isinstance(self.init_value, np.ndarray)
+                and self.init_value.size == 1
+                and isinstance(result, (int, float))
+            ):
+                result = np.array([result])
+
+        if not isinstance(result, type(self.init_value)):
+            raise ValueError
+
+        if isinstance(result, np.ndarray):
+            if result.ndim > self.init_value.ndim:
+                raise ValueError
+            else:
+                result.reshape(self.init_value.shape)
+            result = result.astype(self.init_value.dtype)
+
+        return result
+
+    def validate(self, input: str, pos: int) -> tuple[QtGui.QValidator.State, str, int]:
+        try:
+            self.convert(input)
+        except ValueError:
+            state = self.State.Invalid
+        else:
+            state = self.State.Acceptable
+        return state, input, pos
+
+
+class SigStateEditor(QtWidgets.QWidget):
+
+    def __init__(self, state: signals.map.SigState, parent=None):
+        super().__init__(parent=parent)
+        self.init_state = state.copy()
+        self.state = state
+
+        layout = QtWidgets.QFormLayout()
+
+        self.labels = {}
+        self.editors = {}
+
+        for item in self.state.items():
+            item: signals.map.SigStateItem
+
+            label = QtWidgets.QLabel()
+            self.labels[item.k] = label
+
+            editor = QtWidgets.QLineEdit()
+            validator = SigStateValidator(item.v)
+            editor.setValidator(validator)
+
+            def changed():
+                val = validator.convert(editor.text())
+                self._set_value(signals.map.SigStateItem(k=item.k, v=val))
+
+            editor.editingFinished.connect(changed)
+            self.editors[item.k] = editor
+
+            self._set_value(item)
+            layout.addRow(label, editor)
+
+        self.setLayout(layout)
+
+    def reset_state(self):
+        for key, init_value in self.init_state.items():
+            self.state[key] = init_value
+            self.editors[key].setText(init_value)
+
+    def _set_value(self, item: signals.map.SigStateItem):
+        self.state[item.k] = item.v
+        value_str = signals.map.SigStateItem.dump_value(item.v)
+        self.editors[item.k].setText(value_str)
+        self.labels[item.k].setText(item.k + ('' if item.v == self.init_state[item.k] else '*'))
 
 
 class AddSignal(SignalDialog):
@@ -33,7 +123,7 @@ class AddSignal(SignalDialog):
                  at: signals.map.Coordinates,
                  parent=None,
                  flags=QtCore.Qt.WindowFlags()):
-        super().__init__(at=at, parent=parent, flags=flags)
+        super().__init__(parent=parent, flags=flags)
         self.setWindowTitle('Add signal')
 
         self.cls_name = None
@@ -89,12 +179,13 @@ class AddDevice(SignalDialog):
                  sinks: list,
                  parent=None,
                  flags=QtCore.Qt.WindowFlags()):
-        super().__init__(at=at, parent=parent, flags=flags)
+        super().__init__(parent=parent, flags=flags)
         self.setWindowTitle('Add device')
 
         self.sources_not_sinks = sources_not_sinks
         self.devices = []
         self.device = None
+        self.at = at
 
         devices_by_name = {
             device.name: device
@@ -173,3 +264,44 @@ class AddDevice(SignalDialog):
         else:
             return signals.map.MappedDevInfo.for_sink(at=self.at,
                                                       device=self.device)
+
+
+class EditSignal(SignalDialog):
+
+    def __init__(self,
+                 signal: signals.map.MappedSigInfo,
+                 *,
+                 parent=None,
+                 flags=QtCore.Qt.WindowFlags()
+                 ):
+        super().__init__(parent=parent, flags=flags)
+        self.setWindowTitle(f'Edit {signal.cls_name} at {signal.at}')
+
+        self.signal = signal
+        self.state = signals.map.SigState(signal.state)
+
+        layout = QtWidgets.QFormLayout()
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok
+            | QtWidgets.QDialogButtonBox.Reset
+            | QtWidgets.QDialogButtonBox.Apply
+        )
+        buttons.button(QtWidgets.QDialogButtonBox.Reset).clicked.connect(self._reset)
+        buttons.button(QtWidgets.QDialogButtonBox.Ok).clicked.connect(self.accept)
+        buttons.button(QtWidgets.QDialogButtonBox.Apply).clicked.connect(lambda: self.accepted.emit())
+        buttons.button(QtWidgets.QDialogButtonBox.Apply).setEnabled(False)
+
+        layout.addWidget(buttons)
+        self.setLayout(layout)
+
+    def _apply(self, *keys: str):
+        if not keys:
+            keys = self.state.keys()
+
+    def _on_change(self, key: str, new_value: str):
+        if new_value == self.signal.state[key]:
+            pass
+
+    def info(self) -> signals.map.MappedSigInfo:
+        return attr.evolve(self.signal, state=self.state)

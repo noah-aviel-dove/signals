@@ -1,35 +1,39 @@
+import attr
 import numpy as np
 
-from signals.chain import (
-    SignalType,
-    Shape,
+from signals import (
+    SignalFlags,
 )
 from signals.chain import (
-    Signal,
+    BadStateValue,
+    Emitter,
     Request,
+    Shape,
+    state,
 )
 
 
-class Fixed(Signal):
+def _validate_array(instance, attribute, new_value):
+    if not (isinstance(new_value, np.ndarray) and new_value.ndim == 2):
+        raise BadStateValue(instance, attribute.name, new_value, 'must be a 2D array')
 
-    def __init__(self):
-        super().__init__()
-        self.value = np.zeros((1, 1))
 
-    @property
-    def type(self) -> SignalType:
-        return SignalType.VALUE
+class Fixed(Emitter):
+    @state
+    class State(Emitter.State):
+        value: np.ndarray = attr.ib(
+            factory=Emitter.empty_result,
+            validator=_validate_array,
+            on_setattr=attr.setters.validate
+        )
+
+    @classmethod
+    def flags(cls) -> SignalFlags:
+        return super().flags()
 
     @property
     def channels(self) -> int:
-        return Shape.of_array(self.value).channels
+        return Shape.of_array(self._state.value).channels
 
     def _eval(self, request: Request) -> np.ndarray:
-        return self.value
-
-    def get_state(self) -> dict:
-        assert self.value.ndim == 2, self.value
-        return dict(
-            super().get_state(),
-            value=list(map(list, self.value))
-        )
+        return self._state.value
