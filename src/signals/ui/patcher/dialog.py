@@ -63,7 +63,7 @@ class SigStateValidator(QtGui.QValidator):
         try:
             self.convert(input)
         except ValueError:
-            state = self.State.Invalid
+            state = self.State.Intermediate
         else:
             state = self.State.Acceptable
         return state, input, pos
@@ -91,9 +91,10 @@ class SigStateEditor(QtWidgets.QWidget):
             validator = SigStateValidator(item.v)
             editor.setValidator(validator)
 
-            def changed():
-                val = validator.convert(editor.text())
-                self._set_value(signals.map.SigStateItem(k=item.k, v=val))
+            # Force variable to be bound when the function is defined rather than called
+            def changed(ed=editor, it=item, v=validator):
+                val = v.convert(ed.text())
+                self._set_value(signals.map.SigStateItem(k=it.k, v=val))
 
             editor.editingFinished.connect(changed)
             self.editors[item.k] = editor
@@ -114,6 +115,9 @@ class SigStateEditor(QtWidgets.QWidget):
         self.editors[item.k].setText(value_str)
         self.labels[item.k].setText(item.k + ('' if item.v == self.init_state[item.k] else '*'))
 
+    def has_valid_state(self) -> bool:
+        return all(ed.hasAcceptableInput() for ed in self.editors.values())
+
 
 class AddSignal(SignalDialog):
 
@@ -128,6 +132,7 @@ class AddSignal(SignalDialog):
 
         self.cls_name = None
         self.state = signals.map.SigState()
+        self.state_edit = None
         self.at = at
 
         layout = QtWidgets.QVBoxLayout()
@@ -145,15 +150,20 @@ class AddSignal(SignalDialog):
             self.cls_name = item.text()
             self.accept()
 
+        state_edit_wrapper = QtWidgets.QWidget()
+        state_edit_wrapper.setLayout(QtWidgets.QHBoxLayout())
+
         def on_selection_changed():
-            has_selection = chooser.currentItem() is not None
-            buttons.button(buttons.Ok).setEnabled(has_selection)
-            if has_selection:
-                pass
-                # add state editor; populate with self.info().state
+            if chooser.currentItem() is None:
+                buttons.button(buttons.Ok).setEnabled(False)
+                self.cls_name = None
+                state_edit_wrapper.layout().removeWidget(self.state_edit)
+                self.state_edit = None
             else:
-                pass
-                # remove state editor
+                buttons.button(buttons.Ok).setEnabled(True)
+                self.cls_name = chooser.currentItem().text()
+                self.state_edit = SigStateEditor(self.info().state)
+                state_edit_wrapper.layout().addWidget(self.state_edit)
 
         cls_name_editor.textChanged.connect(filter)
         chooser.currentItemChanged.connect(lambda curr, prev: chooser.setCurrentItem(curr))
@@ -164,8 +174,7 @@ class AddSignal(SignalDialog):
 
         layout.addWidget(cls_name_editor)
         layout.addWidget(chooser)
-        if False:
-            layout.addWidget(SigStateEditor())
+        layout.addWidget(state_edit_wrapper)
         layout.addWidget(buttons)
 
         self.setLayout(layout)

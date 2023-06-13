@@ -139,6 +139,7 @@ class Square(GridItem):
 class Patcher(QtWidgets.QGraphicsWidget):
 
     new_container = QtCore.pyqtSignal(object)
+    new_slider = QtCore.pyqtSignal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)

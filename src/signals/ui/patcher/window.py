@@ -6,18 +6,18 @@ from PyQt5 import (
     QtGui,
     QtWidgets,
 )
-
 import PyQtCmd
 import attr
 
 from signals import SignalFlags
 import signals.map.control
-import signals.ui.patcher
-import signals.ui.patcher.map
-import signals.ui.patcher.dialog
-import signals.ui.theme
-import signals.ui.scene
 import signals.ui.graph
+import signals.ui.patcher
+import signals.ui.patcher.dialog
+import signals.ui.patcher.map
+import signals.ui.patcher.slider
+import signals.ui.scene
+import signals.ui.theme
 import signals.ui.vis
 
 
@@ -35,6 +35,7 @@ class Window(QtWidgets.QMainWindow):
 
         self._set_title()
         self.patcher.new_container.connect(self._on_new_container)
+        self.patcher.new_slider.connect(self._on_new_slider)
 
         file = self.menuBar().addMenu(self.tr('&File'))
         file.addAction(self._create_action('New', 'Ctrl+N', self.new))
@@ -313,6 +314,19 @@ class Window(QtWidgets.QMainWindow):
 
         if new_container.signal.flags & SignalFlags.VIS:
             self.add_vis(new_container)
+
+    def _on_new_slider(self, new_slider: signals.ui.patcher.slider.StateSlider) -> None:
+
+        def on_update(slid: bool, val: float):
+            cmds = self.controller.command_set
+            if slid:
+                cmd = NotImplemented
+            else:
+                cmd = cmds.Edit()
+
+            self.controller.push(cmd)
+
+        new_slider.update.connect(on_update)
 
     def on_port_changed(self,
                         port: signals.ui.graph.Port,
