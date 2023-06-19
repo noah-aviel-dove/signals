@@ -71,9 +71,11 @@ class SigStateValidator(QtGui.QValidator):
 
 class SigStateEditor(QtWidgets.QWidget):
 
+    state_changed = QtCore.pyqtSignal(str)
+
     def __init__(self, state: signals.map.SigState, parent=None):
         super().__init__(parent=parent)
-        self.init_state = state.copy()
+        self.init_state = signals.map.SigState(state)
         self.state = state
 
         layout = QtWidgets.QFormLayout()
@@ -110,10 +112,21 @@ class SigStateEditor(QtWidgets.QWidget):
             self._set_value(item)
 
     def _set_value(self, item: signals.map.SigStateItem):
+        init = item.v == self.init_state[item.k]
+        current = item.v == self.state[item.k]
+
         self.state[item.k] = item.v
         value_str = signals.map.SigStateItem.dump_value(item.v)
         self.editors[item.k].setText(value_str)
-        self.labels[item.k].setText(item.k + ('' if item.v == self.init_state[item.k] else '*'))
+
+        if isinstance(init, np.ndarray):
+            init = init.all()
+        if isinstance(current, np.ndarray):
+            current = current.all()
+        print(init, current)
+        self.labels[item.k].setText(item.k + ('' if init else '*'))
+        if not current:
+            self.state_changed.emit(item.k)
 
     def has_valid_state(self) -> bool:
         return all(ed.hasAcceptableInput() for ed in self.editors.values())
@@ -167,7 +180,6 @@ class AddSignal(SignalDialog):
                 # Reset to empty, then fill in default state
                 self.state = signals.map.SigState()
                 self.state = self.info().state
-                print(self.state.keys())
                 self.state_edit = SigStateEditor(self.state)
                 state_edit_wrapper.layout().addWidget(self.state_edit)
 
@@ -302,30 +314,34 @@ class EditSignal(SignalDialog):
         self.setWindowTitle(f'Edit {signal.cls_name} at {signal.at}')
 
         self.signal = signal
-        self.state = signals.map.SigState(signal.state)
+        self.state_edit = SigStateEditor(state=signals.map.SigState(signal.state))
 
-        layout = QtWidgets.QFormLayout()
+        self.state_edit.state_changed.connect(self._on_change)
 
-        buttons = QtWidgets.QDialogButtonBox(
+        self.buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.Ok
             | QtWidgets.QDialogButtonBox.Reset
-            | QtWidgets.QDialogButtonBox.Apply
         )
-        buttons.button(QtWidgets.QDialogButtonBox.Reset).clicked.connect(self._reset)
-        buttons.button(QtWidgets.QDialogButtonBox.Ok).clicked.connect(self.accept)
-        buttons.button(QtWidgets.QDialogButtonBox.Apply).clicked.connect(lambda: self.accepted.emit())
-        buttons.button(QtWidgets.QDialogButtonBox.Apply).setEnabled(False)
+        self.buttons.button(QtWidgets.QDialogButtonBox.Ok).clicked.connect(self.accept)
+        self.buttons.button(QtWidgets.QDialogButtonBox.Reset).clicked.connect(self._reset)
 
-        layout.addWidget(buttons)
+        self._reset()
+
+        layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(self.state_edit)
+        layout.addWidget(self.buttons)
         self.setLayout(layout)
 
-    def _apply(self, *keys: str):
-        if not keys:
-            keys = self.state.keys()
-
-    def _on_change(self, key: str, new_value: str):
-        if new_value == self.signal.state[key]:
-            pass
+    def _on_change(self, key: str):
+        self.buttons.button(QtWidgets.QDialogButtonBox.Ok).setEnabled(True)
+        self.buttons.button(QtWidgets.QDialogButtonBox.Reset).setEnabled(True)
 
     def info(self) -> signals.map.MappedSigInfo:
-        return attr.evolve(self.signal, state=self.state)
+        return attr.evolve(self.signal, state=self.state_edit.state)
+
+    def _reset(self):
+        self.state_edit.reset_changes()
+        self.buttons.button(QtWidgets.QDialogButtonBox.Ok).setEnabled(False)
+        self.buttons.button(QtWidgets.QDialogButtonBox.Reset).setEnabled(False)
+
+

@@ -59,6 +59,9 @@ class Window(QtWidgets.QMainWindow):
         add_source = self._create_action('Add input device', 'Alt+I', self.add_source_at_active)
         self.addAction(add_source)
 
+        edit_signal = self._create_action('Edit signal', 'Alt+E', self.edit_at_active)
+        self.addAction(edit_signal)
+
         copy_signal = self._create_action('Copy signal', 'Ctrl+C', self.copy_at_active)
         self.addAction(copy_signal)
         paste_signal = self._create_action('Paste signal', 'Ctrl+V', self.paste_at_active)
