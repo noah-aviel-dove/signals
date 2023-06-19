@@ -37,7 +37,7 @@ class Window(QtWidgets.QMainWindow):
         self.patcher.new_container.connect(self._on_new_container)
         self.patcher.new_slider.connect(self._on_new_slider)
 
-        file = self.menuBar().addMenu(self.tr('&File'))
+        file = self.menuBar().addMenu('File')
         file.addAction(self._create_action('New', 'Ctrl+N', self.new))
         file.addAction(self._create_action('New...', 'Ctrl+Shift+N', self.spawn))
         file.addAction(self._create_action('Open...', 'Ctrl+O', self.open))
@@ -46,7 +46,7 @@ class Window(QtWidgets.QMainWindow):
         file.addAction(self._create_action('Save As...', 'Ctrl+Shift+S', self.save_as))
         file.addAction(self._create_action('Quit', 'Ctrl+Q', self.close))
 
-        edit = self.menuBar().addMenu(self.tr('&Edit'))
+        edit = self.menuBar().addMenu('Edit')
         edit.addAction(self._create_action('Undo', 'Ctrl+Z', self._undo))
         edit.addAction(self._create_action('Redo', 'Ctrl+Shift+Z', self._redo))
 
