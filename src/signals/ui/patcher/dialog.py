@@ -154,15 +154,21 @@ class AddSignal(SignalDialog):
         state_edit_wrapper.setLayout(QtWidgets.QHBoxLayout())
 
         def on_selection_changed():
+            if self.state_edit is not None:
+                state_edit_wrapper.layout().removeWidget(self.state_edit)
+                self.state_edit.setParent(None)
             if chooser.currentItem() is None:
                 buttons.button(buttons.Ok).setEnabled(False)
                 self.cls_name = None
-                state_edit_wrapper.layout().removeWidget(self.state_edit)
                 self.state_edit = None
             else:
                 buttons.button(buttons.Ok).setEnabled(True)
                 self.cls_name = chooser.currentItem().text()
-                self.state_edit = SigStateEditor(self.info().state)
+                # Reset to empty, then fill in default state
+                self.state = signals.map.SigState()
+                self.state = self.info().state
+                print(self.state.keys())
+                self.state_edit = SigStateEditor(self.state)
                 state_edit_wrapper.layout().addWidget(self.state_edit)
 
         cls_name_editor.textChanged.connect(filter)
