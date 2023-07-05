@@ -10,12 +10,13 @@ import PyQtCmd
 import attr
 
 from signals import SignalFlags
+from signals.map import PlaybackState
 import signals.map.control
 import signals.ui.graph
 import signals.ui.patcher
 import signals.ui.patcher.dialog
 import signals.ui.patcher.map
-import signals.ui.patcher.slider
+import signals.ui.patcher.control
 import signals.ui.scene
 import signals.ui.theme
 import signals.ui.vis
@@ -35,7 +36,7 @@ class Window(QtWidgets.QMainWindow):
 
         self._set_title()
         self.patcher.new_container.connect(self._on_new_container)
-        self.patcher.new_slider.connect(self._on_new_slider)
+        self.patcher.new_control.connect(self._on_new_control)
 
         file = self.menuBar().addMenu('File')
         file.addAction(self._create_action('New', 'Ctrl+N', self.new))
@@ -191,10 +192,18 @@ class Window(QtWidgets.QMainWindow):
         sq = self._active_square(empty=True)
         data = QtGui.QGuiApplication.clipboard().mimeData()
         if sq is not None and data.hasFormat(self._signal_mime_type):
-            add_cmd = self.controller.parse_line(data.data(self._signal_mime_type).data().decode())
+            data = data.data(self._signal_mime_type).data().decode()
+            add_cmd= self.controller.parse_line(data)
             assert isinstance(add_cmd, self.controller.command_set.Add), add_cmd
             add_cmd = attr.evolve(add_cmd, signal=attr.evolve(add_cmd.signal, at=sq.at))
             self.controller.push(add_cmd)
+
+    def playback_at_active(self, pb: PlaybackState) -> None:
+        sq = self._active_square(empty=False)
+        if sq is not None and sq.content.signal.flags & SignalFlags.SINK_DEVICE:
+            cmd = self.controller.command_set.PlaybackCommand(at=[sq.at],
+                                                              target_state=pb)
+            cmd.affect(self.controller)
 
     def new(self):
         if self._discard_prompt():
@@ -318,18 +327,8 @@ class Window(QtWidgets.QMainWindow):
         if new_container.signal.flags & SignalFlags.VIS:
             self.add_vis(new_container)
 
-    def _on_new_slider(self, new_slider: signals.ui.patcher.slider.StateSlider) -> None:
-
-        def on_update(slid: bool, val: float):
-            cmds = self.controller.command_set
-            if slid:
-                cmd = NotImplemented
-            else:
-                cmd = cmds.Edit()
-
-            self.controller.push(cmd)
-
-        new_slider.update.connect(on_update)
+    def _on_new_control(self, new_control: signals.ui.patcher.control.Control) -> None:
+        new_control.notify.connect(lambda notification: notification.affect(self.controller))
 
     def on_port_changed(self,
                         port: signals.ui.graph.Port,

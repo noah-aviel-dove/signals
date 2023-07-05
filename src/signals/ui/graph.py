@@ -135,6 +135,7 @@ class EmitterNode(Node):
 class SinkNode(Node):
 
     def __init__(self, parent: 'NodeContainer'):
+        # FIXME replace or find a way to combine with playback controls
         n_radii = self.radius // 10
         radii = [self.radius * i / n_radii for i in range(1, n_radii)]
         super().__init__(
@@ -144,6 +145,7 @@ class SinkNode(Node):
             ],
             parent=parent
         )
+        self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
 
 
 class PowerToggle(NodePartWidget):
@@ -228,6 +230,7 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
         if signal.flags & SignalFlags.SINK_DEVICE:
             self.node = SinkNode(self)
             # FIXME add play button
+            #  ^^^^
         else:
             self.node = EmitterNode(self)
             self.power_toggle = PowerToggle(self)

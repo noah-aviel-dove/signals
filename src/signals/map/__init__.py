@@ -1,5 +1,6 @@
 import abc
 import copy
+import enum
 import functools
 import json
 import re
@@ -313,8 +314,14 @@ class LinkedDevInfo(MappedDevInfo, LinkedSigInfo):
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
 class PlaybackState:
-    position: int | None
-    active: bool | None
+    position: int | None = attr.ib(default=None)
+    active: bool | None = attr.ib(default=None)
+
+
+class PlaybackCommandStates(enum.Enum):
+    PLAY = PlaybackState(active=True)
+    PAUSE = PlaybackState(active=False)
+    STOP = PlaybackState(active=False, position=0)
 
 
 class MapLayerError(SignalsError):
@@ -508,16 +515,24 @@ class Map:
                 delattr(output, info.port)
                 return input_at
 
-    def playback(self, at: Coordinates, state: PlaybackState) -> None:
+    def playback(self,
+                 at: Coordinates,
+                 state: typing.Optional[PlaybackState] = None
+                 ) -> PlaybackState:
         sink = self._find(at)
         if isinstance(sink, signals.chain.dev.SinkDevice):
-            if state.position is not None:
-                sink.seek(state.position)
-            if state.active is not None:
-                if state.active:
-                    sink.start()
-                else:
-                    sink.stop()
+            if state is None:
+                return PlaybackState(active=sink.is_active,
+                                     position=sink.frame_position)
+            else:
+                if state.position is not None:
+                    sink.seek(state.position)
+                if state.active is not None:
+                    if state.active:
+                        sink.start()
+                    else:
+                        sink.stop()
+                return state
         else:
             raise BadPlaybackTarget(at, sink)
 

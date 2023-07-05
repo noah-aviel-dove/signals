@@ -13,6 +13,7 @@ import traceback
 import typing
 
 import attr
+import more_itertools
 
 import signals.chain.dev
 import signals.chain.discovery
@@ -26,6 +27,7 @@ from signals.map import (
     MapLayerError,
     MappedDevInfo,
     MappedSigInfo,
+    PlaybackCommandStates,
     PlaybackState,
     PortInfo,
     SigState,
@@ -204,14 +206,9 @@ class HistoryCommand(LineCommand, abc.ABC):
 
 
 @attr.s(auto_attribs=True, kw_only=True, frozen=True)
-class PlaybackCommand(LineCommand, abc.ABC):
+class AbstractPlaybackCommand(Command, abc.ABC):
+    # FIXME make this a set. Duplicates could cause funk with toggle command.
     at: list[Coordinates]
-
-    @classmethod
-    def parser(cls) -> argparse.ArgumentParser:
-        parser = super().parser()
-        parser.add_argument('at', type=Coordinates.parse, nargs='*')
-        return parser
 
     @abc.abstractmethod
     def target_state(self) -> PlaybackState:
@@ -228,6 +225,16 @@ class PlaybackCommand(LineCommand, abc.ABC):
         else:
             for sink in sig_map.iter_sinks():
                 yield sink.at
+
+
+@attr.s(auto_attribs=True, kw_only=True, frozen=True)
+class NamedPlaybackCommand(LineCommand, AbstractPlaybackCommand, abc.ABC):
+
+    @classmethod
+    def parser(cls) -> argparse.ArgumentParser:
+        parser = super().parser()
+        parser.add_argument('at', type=Coordinates.parse, nargs='*')
+        return parser
 
 
 class CommandError(MapLayerError):
@@ -391,6 +398,40 @@ class CommandSet:
 
         def undo(self, controller: 'Controller'):
             controller.map.edit(self.at, self.pop_stash())
+
+    @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+    class Track(Edit):
+
+        def __attrs_post_init__(self):
+            # This may not be necessary, but for now it makes it easier to
+            # think about.
+            assert len(self.state.keys()) == 1, self.state
+            assert isinstance(self.state[self.key], float), self.state
+
+        def affect(self, controller: 'Controller'):
+            last = more_itertools.last(controller.history, None)
+            if isinstance(last, type(self)) and self.follows(last):
+                key = self.key
+                old_val = last.state[key]
+                last.state[last.key] = self.state[key]
+                old_stash = last._stash[-1]
+                last.do(controller)
+                # Updating the `Track` instance should not affect the undo stack
+                assert last.pop_stash() == old_val
+                assert last._stash[-1] == old_stash
+                expected = last
+            else:
+                super().affect(controller)
+                expected = self
+            head = controller.history[-1]
+            assert head is expected, (head, expected)
+
+        def follows(self, other: 'CommandSet.Track') -> bool:
+            return self.at == other.at and self.key == other.key
+
+        @property
+        def key(self) -> str:
+            return more_itertools.one(self.state.keys())
 
     @attr.s(auto_attribs=True, kw_only=True, frozen=True)
     class Move(LineCommand, StackCommand):
@@ -658,48 +699,57 @@ class CommandSet:
         def _get_devices(self, rack: signals.chain.discovery.Rack) -> list[signals.chain.dev.DeviceInfo]:
             return rack.sinks()
 
-    class PlayCommand(PlaybackCommand):
+    class PlayCommand(NamedPlaybackCommand):
 
         @classmethod
         def name(cls) -> str:
             return 'play'
 
         def target_state(self) -> PlaybackState:
-            return PlaybackState(position=None, active=True)
+            return PlaybackCommandStates.PLAY.value
 
-    class PauseCommand(PlaybackCommand):
+    class PauseCommand(NamedPlaybackCommand):
 
         @classmethod
         def name(cls) -> str:
             return 'pause'
 
         def target_state(self) -> PlaybackState:
-            return PlaybackState(position=None, active=False)
+            return PlaybackCommandStates.PAUSE.value
 
-    class StopCommand(PlaybackCommand):
+    class StopCommand(NamedPlaybackCommand):
 
         @classmethod
         def name(cls) -> str:
             return 'stop'
 
         def target_state(self) -> PlaybackState:
-            return PlaybackState(position=0, active=False)
+            return PlaybackCommandStates.STOP.value
 
-        class SeekCommand(PlaybackCommand):
-            position: int
+    @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+    class SeekCommand(NamedPlaybackCommand):
+        position: int
 
-            @classmethod
-            def name(cls) -> str:
-                return 'seek'
+        @classmethod
+        def name(cls) -> str:
+            return 'seek'
 
-            @classmethod
-            def parser(cls) -> argparse.ArgumentParser:
-                parser = super().parser()
-                parser.add_argument('position', type=int)
-                return parser
+        @classmethod
+        def parser(cls) -> argparse.ArgumentParser:
+            parser = super().parser()
+            parser.add_argument('position', type=int)
+            return parser
 
-            def target_state(self) -> PlaybackState:
-                return PlaybackState(position=self.position, active=None)
+        def target_state(self) -> PlaybackState:
+            return PlaybackState(position=self.position, active=None)
+
+    @attr.s(auto_attribs=True, kw_only=True, frozen=True)
+    class PlaybackCommand(AbstractPlaybackCommand):
+
+        _target_state: PlaybackState
+
+        def target_state(self) -> PlaybackState:
+            return self._target_state
 
 
 class Controller(cmd.Cmd):
