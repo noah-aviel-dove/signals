@@ -29,37 +29,51 @@ class Osc(BlockCachingEmitter, ImplicitChannels, abc.ABC):
         # hertz: cycles/second
         hertz = self.hertz.forward_at_block_rate(request)
         # frames / (frames / second) * (cycles / second) + cycles
-        cycles = request.loc.frame_range / request.loc.rate * hertz + phase
-        return self._osc(cycles)
+        cycles = request.loc.frame_range / request.loc.rate
+        cycles *= hertz
+        cycles += phase
+        self._osc(cycles)
+        return cycles
 
     @abc.abstractmethod
-    def _osc(self, t: np.ndarray) -> np.ndarray:
+    def _osc(self, t: np.ndarray) -> None:
         raise NotImplementedError
 
 
 class Sine(Osc):
 
-    def _osc(self, t: np.ndarray) -> np.ndarray:
-        return np.sin(t * 2 * np.pi)
+    def _osc(self, t: np.ndarray) -> None:
+        t *= np.pi * 2
+        np.sin(t, out=t)
 
 
 class Square(Osc):
 
-    def _osc(self, t: np.ndarray) -> np.ndarray:
-        return np.sign(0.5 - np.mod(t, 1))
+    def _osc(self, t: np.ndarray) -> None:
+        np.mod(t, 1, out=t)
+        np.subtract(0.5, t, out=t)
+        np.sign(t, out=t)
 
 
 class Sawtooth(Osc):
 
-    def _osc(self, t: np.ndarray) -> np.ndarray:
-        return 2 * np.mod(t - 0.5, 1) - 1
+    def _osc(self, t: np.ndarray) -> None:
+        t -= 0.5
+        np.mod(t, 1, out=t)
+        t *= 2
+        t -= 1
 
 
 class Triangle(Osc):
 
-    def _osc(self, t: np.ndarray) -> np.ndarray:
-        t = t - 0.25
-        return (4 * np.mod(t, 0.5) - 1) * np.sign(np.mod(t, 1) - 0.5)
+    def _osc(self, t: np.ndarray) -> None:
+        np.subtract(0.25, t, out=t)
+        t2 = np.mod(t, 1)
+        t2 -= 0.5
+        np.mod(t, 0.5, out=t)
+        t *= 4
+        t -= 1
+        np.copysign(t, t2, out=t)
 
 
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
