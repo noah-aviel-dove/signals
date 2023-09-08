@@ -13,6 +13,7 @@ from signals import (
 )
 import signals.map
 import signals.ui
+import signals.ui.control
 import signals.ui.geometry
 import signals.ui.theme
 
@@ -135,7 +136,6 @@ class EmitterNode(Node):
 class SinkNode(Node):
 
     def __init__(self, parent: 'NodeContainer'):
-        # FIXME replace or find a way to combine with playback controls
         n_radii = self.radius // 10
         radii = [self.radius * i / n_radii for i in range(1, n_radii)]
         super().__init__(
@@ -145,7 +145,6 @@ class SinkNode(Node):
             ],
             parent=parent
         )
-        self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
 
 
 class PowerToggle(NodePartWidget):
@@ -227,11 +226,19 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
 
         port_layout = hlayout()
         port_layout.setSpacing(self.spacing)
+
+        root_layout = vlayout()
+        root_layout.setSpacing(self.spacing)
+
+        control = None
+
         if signal.flags & SignalFlags.SINK_DEVICE:
             self.node = SinkNode(self)
-            # FIXME add play button
-            #  ^^^^
+            control = signals.ui.control.PlaybackControl(at=self.signal.at)
         else:
+            for k, v in signal.state.items():
+                pass
+                # FIXME add controls??
             self.node = EmitterNode(self)
             self.power_toggle = PowerToggle(self)
             port_layout.addItem(self.power_toggle)
@@ -239,12 +246,11 @@ class NodeContainer(QtWidgets.QGraphicsWidget):
         for port in self.ports.values():
             port_layout.addItem(port)
 
-        core_layout = vlayout()
-        core_layout.setSpacing(self.spacing)
-        core_layout.addItem(port_layout)
-        core_layout.addItem(self.node)
 
-        self.setLayout(core_layout)
+        root_layout.addItem(port_layout)
+        root_layout.addItem(self.node)
+
+        self.setLayout(root_layout)
         self.setZValue(-1)
 
     def relocate(self, parent: QtWidgets.QGraphicsWidget, at: signals.map.Coordinates) -> None:

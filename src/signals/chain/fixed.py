@@ -29,7 +29,7 @@ class Fixed(Emitter):
 
     @classmethod
     def flags(cls) -> SignalFlags:
-        return super().flags()
+        return super().flags() | SignalFlags.CONSTANT
 
     @property
     def channels(self) -> int:

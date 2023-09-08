@@ -32,7 +32,8 @@ class Scalar(Shaper, abc.ABC):
 class Flatten(Scalar):
 
     def _eval(self, request: Request) -> np.ndarray:
-        return np.sum(self.input.forward(request), axis=0)
+        loc = request.loc.reslice(self.input.channels)
+        return np.sum(self.input.request(loc), axis=0)
 
 
 class FlattenUnit(Scalar):

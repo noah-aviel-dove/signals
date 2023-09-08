@@ -123,7 +123,6 @@ class SigStateEditor(QtWidgets.QWidget):
             init = init.all()
         if isinstance(current, np.ndarray):
             current = current.all()
-        print(init, current)
         self.labels[item.k].setText(item.k + ('' if init else '*'))
         if not current:
             self.state_changed.emit(item.k)
@@ -320,9 +319,11 @@ class EditSignal(SignalDialog):
 
         self.buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.Ok
+            | QtWidgets.QDialogButtonBox.Cancel
             | QtWidgets.QDialogButtonBox.Reset
         )
         self.buttons.button(QtWidgets.QDialogButtonBox.Ok).clicked.connect(self.accept)
+        self.buttons.button(QtWidgets.QDialogButtonBox.Cancel).clicked.connect(self.reject)
         self.buttons.button(QtWidgets.QDialogButtonBox.Reset).clicked.connect(self._reset)
 
         self._reset()
@@ -341,7 +342,6 @@ class EditSignal(SignalDialog):
 
     def _reset(self):
         self.state_edit.reset_changes()
-        self.buttons.button(QtWidgets.QDialogButtonBox.Ok).setEnabled(False)
         self.buttons.button(QtWidgets.QDialogButtonBox.Reset).setEnabled(False)
 
 

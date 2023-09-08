@@ -57,6 +57,7 @@ class SignalFlags(enum.Flag):
     # Never alters its input. When enabled, produces a side effect.
     SIDE_EFFECT = VIS | RECORDER | PASSTHRU
 
+    CONSTANT = enum.auto()
 
     @classmethod
     def _missing_(cls, value: object) -> None:

@@ -7,7 +7,9 @@ from PyQt5 import (
     QtWidgets,
 )
 import attr
+import numpy as np
 
+from signals import SignalFlags
 import signals.map
 import signals.map.control
 import signals.map.control
@@ -222,3 +224,44 @@ class FloatControl(ValueControl[FloatUpdate]):
                                      field=self.state_field,
                                      value=value,
                                      continuous=True))
+
+
+class ArrayControl(FloatControl):
+    def __init__(self,
+                 *,
+                 state_field: str,
+                 index: int,
+                 val: float = 0.0,
+                 min_: float = -1.0,
+                 max_: float = 1.0,
+                 at: signals.map.Coordinates,
+                 parent=None):
+        super().__init__(state_field=state_field,
+                         at=at,
+                         val=val,
+                         min_=min_,
+                         max_=max_,
+                         parent=parent)
+        self.index = index
+
+
+class StateControl(QtWidgets.QWidget):
+
+    def __init__(self, signal: signals.map.MappedSigInfo, parent=None):
+        super().__init__(parent=parent)
+        self.signal = signal
+        at = self.signal.at
+        controls = []
+
+        if signal.flags & SignalFlags.SINK_DEVICE:
+            controls.append(PlaybackControl(at=at))
+
+        for field, val in signal.state:
+            val: signals.map.SigStateValue
+            if isinstance(val, int):
+                controls.append(IntControl(at=at, state_field=field))
+            elif isinstance(val, float):
+                controls.append(FloatControl(at=at, state_field=field))
+            elif isinstance(val, np.ndarray):
+                controls.extend((
+                ))

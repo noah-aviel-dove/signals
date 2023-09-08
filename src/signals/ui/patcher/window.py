@@ -15,8 +15,9 @@ import signals.map.control
 import signals.ui.graph
 import signals.ui.patcher
 import signals.ui.patcher.dialog
+import signals.ui.control
 import signals.ui.patcher.map
-import signals.ui.patcher.control
+import signals.ui.control
 import signals.ui.scene
 import signals.ui.theme
 import signals.ui.vis
@@ -81,7 +82,7 @@ class Window(QtWidgets.QMainWindow):
                 rm_signal,
                 copy_signal,
                 cut_signal,
-                # FIXME add UI to edit existing signal
+                edit_signal,
             ]
         }
 
@@ -327,7 +328,7 @@ class Window(QtWidgets.QMainWindow):
         if new_container.signal.flags & SignalFlags.VIS:
             self.add_vis(new_container)
 
-    def _on_new_control(self, new_control: signals.ui.patcher.control.Control) -> None:
+    def _on_new_control(self, new_control: signals.ui.control.Control) -> None:
         new_control.notify.connect(lambda notification: notification.affect(self.controller))
 
     def on_port_changed(self,

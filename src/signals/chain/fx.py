@@ -2,6 +2,7 @@ import abc
 import enum
 import typing
 
+import attr
 import numpy as np
 import scipy.signal
 
@@ -15,6 +16,7 @@ from signals.chain import (
     Request,
     Shape,
     port,
+    state,
 )
 
 
@@ -79,8 +81,14 @@ class CritFilter(Effect, abc.ABC):
     def type(self) -> Type:
         raise NotImplementedError
 
+    @state
+    class State(Effect.State):
+        # FIXME: I feel like this is too many. Was it tested via experiment?
+        #  If so, need to repeat experiment and record the values tested.
+        context_frames: int = attr.ib(default=100)
+
     def context_frames(self) -> int:
-        return 100
+        return self.get_state().context_frames
 
     def _filter(self,
                 request: Request,
@@ -90,6 +98,9 @@ class CritFilter(Effect, abc.ABC):
         assert Shape.of_array(crit_1).frames == 1
         if crit_2 is not None:
             assert Shape.of_array(crit_2).frames == 1
+        # np raises exception when crit freqs aren't positive
+        if crit_1 <= 0 or (crit_2 is not None and crit_2 <= 0):
+            return np.zeros(request.loc.shape)
         context_frames = self.context_frames()
         input_ = self.input.forward_with_context(request, context_frames)
         shape = request.loc.shape
@@ -112,6 +123,7 @@ class CritFilter(Effect, abc.ABC):
                  rate: float
                  ):
         # Not caching this because the output must be mutable for `sosfilt`
+        # FIXME it should still be cached and copied, right?
         return scipy.signal.butter(
             N=order,
             Wn=scaled_crit,
