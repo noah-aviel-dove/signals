@@ -120,7 +120,7 @@ class BlockLoc:
 
     @functools.cached_property
     def frame_range(self) -> np.ndarray:
-        frames = np.arange(self.position, self.end_position).reshape(-1, 1)
+        frames = np.arange(self.position, self.end_position, dtype=float).reshape(-1, 1)
         frames.flags.writeable = False
         return frames
 
