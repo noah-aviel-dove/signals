@@ -9,8 +9,7 @@
 
 struct chain {
     id_type id;
-    int max_stack_size;
-    int result_index;
+    chain_stack_index stack_end;
     struct sig *stack;
     struct link_ll *links;
 };

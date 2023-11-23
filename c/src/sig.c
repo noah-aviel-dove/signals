@@ -4,14 +4,17 @@
 #include <stdlib.h>
 
 
-void sig_alloc(struct sig *sig, struct sig_alloc_info *info) {
+void sig_alloc(struct sig *sig, struct sig_alloc_info info) {
     assert(sig->type == SIG_0);
-    sig->type = info->type;
+    sig->type = info.type;
     switch (sig->type) {
         case SIG_S:
+            assert(!info.size[0])
+            assert(!info.size[1])
             sig->val.s = malloc(sizeof(sca));
             break;
         case SIG_V:
+            assert(!info.size[1])
             sig->val.v = vec_alloc(info->size[0]);
             break;
         case SIG_B:

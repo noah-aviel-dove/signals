@@ -22,7 +22,7 @@ struct buf {
 
 
 enum sig_type {
-    SIG_0, //Indicates a NULL or uninitilaized
+    SIG_0, //Indicates NULL or uninitilaized
     SIG_S,
     SIG_V,
     SIG_B,
@@ -41,11 +41,11 @@ struct sig {
 
 struct sig_alloc_info {
     enum sig_type type;
-    int size[];
+    int size[2];
 };
 
 
-void sig_alloc(struct sig*, struct sig_alloc_info*);
+void sig_alloc(struct sig*, struct sig_alloc_info);
 
 
 struct vec *vec_alloc(int);

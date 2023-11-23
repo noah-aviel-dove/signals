@@ -1,9 +1,11 @@
 #pragma once
 
+#include <stdint.h>
+
 #include "sig.h"
 
 
-typedef int id_type;
+typedef int32_t id_type;
 
 
 struct sig data_get(id_type);

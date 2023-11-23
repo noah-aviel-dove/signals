@@ -4,17 +4,8 @@
 #include "link.h"
 
 
-enum link_type {
-    LINK_BCLOCK,
-    LINK_GCLOCK,
-    LINK_ISINE,
-    LINK_NOISE,
-    LINK_ADD2,
-    LINK_MUL2
-};
 
-
-union linkf linkf_get(enum link_type);
+union linkf linkf_get(const char[8], enum link_prototype);
 
 
 void link_bclock(struct ctx*, struct buf*);
