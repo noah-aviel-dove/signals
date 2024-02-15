@@ -3,23 +3,55 @@
 #include <assert.h>
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
+
+#include "map.h"
 
 
 #define M_TAU (2 * M_PI)
 
 
-union linkf linkf_get(const char name[8]) {
-    switch(link_type) {
-#define PAIR(type, func, a) case type: return (union linkf){.a = &func}
-        PAIR(LINK_BCLOCK, link_bclock, b );
-        PAIR(LINK_ISINE,  link_isine,  b );
-        PAIR(LINK_NOISE,  link_noise,  b );
-        PAIR(LINK_ADD2 ,  link_add2 ,  bb_e);
-        PAIR(LINK_MUL2 ,  link_mul_bb ,  bb_e);
-#undef PAIR
-        default:
-            assert(0);
+static struct map LINKS;
+
+
+void links_init(void) {
+    map_init(&LINKS, sizeof(struct link_spec), 32);
+    map_put(&LINKS, 
+}
+
+
+union linkf linkf_get(const char *name, enum link_prototype prototype) {
+    struct link_spec spec;
+    union linkf result;
+    key_t key;
+    strncpy(&key, name, LINK_NAME_MAX);
+    map_get(&LINKS, key, &spec);
+    switch (prototype) {
+#define CASE(P, a) case LINK_PROTO_##P: assert(spec.a); result.a = spec.a; break;
+    CASE(S, s)
+    CASE(V, v)
+    CASE(B, b)
+    CASE(SS, ss)
+    CASE(VS, vs)
+    CASE(BS, bs)
+    CASE(VV_EQ, vv_eq)
+    CASE(VV_1L, vv_1l)
+    CASE(VV_1G, vv_1g)
+    CASE(BV_EQ, BV_EQ)
+    CASE(BV_1L, bv_1l)
+    CASE(BV_1G, bv_1g)
+    CASE(BB_EQ, bb_eq)
+    CASE(BB_1L, bb_1l)
+    CASE(BB_1G, bb_1g)
+#undef CASE
+    case LINK_PROTO_0:
+    case LINK_PROTO_MA:
+    case LINK_PROTO_MF:
+    default:
+        assert(0);
+        break;
     }
+    return result;
 }
 
 
@@ -32,9 +64,9 @@ void link_bclock(struct ctx *ctx, struct buf *b) {
 
 
 void link_gclock(struct ctx *ctx, struct buf *b) {
-    // Only fills 1st channel
-    for (int i = 0; i < b->frames; ++i) {
-        b->data[i] = ctx->frame + i;
+    // Only fills 1st channel. What if I added a signal type "channel"? If so, rename "buffer" to "matrix"
+    for (int i = ctx->frame; i < ctx->frame + b->frames; ++i) {
+        b->data[i] = i;
     }
 }
 
@@ -55,7 +87,7 @@ void link_ipulse(struct ctx *ctx, struct buf *b, sca *s) {
 
 void link_itri1(struct ctx *ctx, struct buf *b, sca *s) {
     // This produces a very odd, discontinuous transition between triangle waves and sawtooth waves.
-    // Keeping it so I can test it but need another version that implments a cleaner shuffle.
+    // Keeping it so I can test it but need another version that implements a cleaner shuffle.
     const sca 
         a = *s, 
         a_abs = fabs(a),

@@ -8,7 +8,7 @@
 
 
 struct chain {
-    id_type id;
+    key_t id;
     chain_stack_index stack_end;
     struct sig *stack;
     struct link_ll *links;
@@ -18,5 +18,7 @@ STRUCT_LIST(chain);
 STRUCT_PLIST(chain);
 
 
-struct sig chain_exec(struct chain*, struct ctx*);
+void chain_init(struct chain*);
+
+void chain_exec(struct chain*, struct ctx*);
 

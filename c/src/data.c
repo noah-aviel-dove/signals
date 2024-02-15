@@ -7,100 +7,66 @@
 #include "sig.h"
 
 
-struct data_entry {
-    id_type id;
-    struct sig data;
-};
+static struct map DATA;
 
 
-STRUCT_LIST(data_entry);
-
-
-#define DATA_SIZE 1024
-
-
-static struct data_entry_ll *DATA[DATA_SIZE];
-
-
-struct data_entry_ll **data_list(id_type id) {
-    return &DATA[id % DATA_SIZE];
+void data_init(void) {
+    map_init(&DATA, sizeof(struct sig), 32);
 }
 
 
-struct sig data_get(id_type id) {
-    for (struct data_entry_ll *li = *data_list(id); li; li = li->next) {
-        struct data_entry entry = li->item;
-        if (entry.id == id) {
-            return entry.data;
-        }
-    }
-    assert(0); 
+void data_get(key_t id, struct sig *sig) {
+    assert(map_get(&DATA, id, sig));
 }
 
 
-void data_put(id_type id, struct sig data) {
-    struct data_entry_ll *ln, **lp = data_list(id);
-    for (struct data_entry_ll *li = *lp; li; li = li->next) {
-        struct data_entry entry = li->item;
-        if (entry.id == id) {
-            sig_free(&entry.data);
-            entry.data = data;
-            return;
-        }
-    }
-    ln = malloc(sizeof(struct data_entry_ll));
-    ln->item = (struct data_entry){.id = id, .data = data};
-    ln->next = *lp;
-    *lp = ln;
+void data_put(key_t id, struct sig *sig) {
+    map_put(&DATA, id, sig, 0);
 }
 
 
-sca *data_get_scalar(id_type id) {
-    struct sig s = data_get(id);
+sca *data_get_scalar(key_t id) {
+    struct sig s;
+    data_get(id, &s);
     assert(s.type == SIG_S);
     return s.val.s;
 }
 
 
-struct vec *data_get_vec(id_type id) {
-    struct sig s = data_get(id);
-    assert(s.type == SIG_V);
-    return s.val.v;
+struct vec *data_get_vec(key_t id) {
+    struct sig v;
+    data_get(id, &v);
+    assert(v.type == SIG_V);
+    return v.val.v;
 }
 
 
-struct buf *data_get_buf(id_type id) {
-    struct sig s = data_get(id);
-    assert(s.type == SIG_B);
-    return s.val.b;
+struct buf *data_get_buf(key_t id) {
+    struct sig b; 
+    data_get(id, &b);
+    assert(b.type == SIG_B);
+    return b.val.b;
 }
 
 
-void data_put_sca(id_type id, sca *s) {
-    data_put(id, (struct sig){SIG_S, {.s = s}});
+void data_put_sca(key_t id, sca *s) {
+    struct sig sig = {SIG_S, {.s = s}};
+    data_put(id, &sig);
 }
 
 
-void data_put_vec(id_type id, struct vec *v) {
-    data_put(id, (struct sig){SIG_V, {.v = v}});
+void data_put_vec(key_t id, struct vec *v) {
+    struct sig sig = {SIG_V, {.v = v}};
+    data_put(id, &sig);
 }
 
 
-void data_put_buf(id_type id, struct buf *b) {
-    data_put(id, (struct sig){SIG_B, {.b = b}});
+void data_put_buf(key_t id, struct buf *b) {
+    struct sig sig = {SIG_V, {.b = b}};
+    data_put(id, &sig);
 }
 
 
-void data_rm(id_type id) {
-    for (struct data_entry_ll **lip = data_list(id); *lip; lip = &((*lip)->next)) {
-        struct data_entry_ll li = **lip;
-        struct data_entry entry = li.item;
-        if (entry.id == id) {
-            sig_free(&entry.data);
-            *lip = li.next;
-            free(lip);
-            return;
-        }
-    }
-    assert(0);
+void data_rm(key_t id) {
+    assert(map_pop(&DATA, id, 0));
 }

@@ -32,20 +32,29 @@ enum sig_type {
 struct sig {
     enum sig_type type;
     union {
-        sca *s; // Does this have to be a pointer? If so, explain why here.
+        sca *s; 
         struct vec *v;
         struct buf *b;
-    } val;
+    };
 };
 
 
-struct sig_alloc_info {
+struct sig_alloc_args {
     enum sig_type type;
     int size[2];
 };
 
 
-void sig_alloc(struct sig*, struct sig_alloc_info);
+/* 
+ * Lifecycle management
+ */
+struct sig_alloc_args sig_args(struct sig*);
+
+
+void sig_alloc(struct sig*, struct sig_alloc_args);
+
+
+sca *sca_alloc(void);
 
 
 struct vec *vec_alloc(int);
@@ -57,5 +66,29 @@ struct buf *buf_alloc(int, int);
 void sig_free(struct sig*);
 
 
+/*
+ * Conversion
+ */
+void vtos(struct sig*, struct sig*);
+
+
+void btos(struct sig*, struct sig*);
+
+
+void stov(struct sig*, struct sig*);
+
+
+void btov(struct sig*, struct sig*);
+
+
+void stob(struct sig*, struct sig*);
+
+
+void vtob(struct sig*, struct sig*);
+
+
+/*
+ * Other
+ */
 int buf_size(struct buf*);
 
