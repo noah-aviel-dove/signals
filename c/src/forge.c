@@ -1,8 +1,8 @@
 #include "forge.h"
 
-#include <assert.h>
 #include <string.h>
 
+#include "common.h"
 #include "data.h"
 #include "sig.h"
 #include "links.h"
@@ -22,10 +22,11 @@ int forge(struct chain *chain) {
             linkf_prototype param_prototype;
             switch(arg_source.type) {
                 case LINK_SRC_0:
-                    assert(i == link->spec.arity);
+                    REQ_EQ_I(i, link->spec.arity);
+                    dispatch->func = (linkf_0)0;
                     goto end;
                 case LINK_SRC_M:
-                    assert(i == 1);
+                    REQ_EQ_I(i, 1);
                     dispatch->prototype = LINK_PROTO_M;
                     assert(link->sources[0].type == LINK_SRC_C);
                     state[link->sources[0].stack_index] = arg_source.alloc_args;
@@ -44,14 +45,74 @@ int forge(struct chain *chain) {
                     dispatch_shapes[i] = sig_args(dispatch->args[i]);
                     break;
                 default:
-                    assert(0);
+                    DIE("%d", arg_source.type);
             }
             param_prototype = link->dispatch.args[i].type;
-            assert(param && param < (1u << 9));
-            dispatch->prototype |= param << (i * 8);
+            REQ_GT_I(param_prototype, 0);
+            REQ_LT_I(param_prototype, (1u << 9));
+            dispatch->prototype |= param_prototype << (i * 8);
         }
-        // Set dispatch->func here based on link->spec.name and dispatch_shapes
+        dispatch->func = linkf_get(link->spec, dispatch_shapes);
         end:
     }
     return 0;
+}
+
+
+union linkf linkf_get(const struct link_spec *spec, struct sig_alloc_args args[]) {
+    struct linkfs fs = spec->fs;
+    switch(spec->arity) {
+        case 0:
+            return fs._0;
+        case 1:
+            switch(args[0]) {
+                case SIG_S:
+                    return fs.s; 
+                case SIG_V:
+                    return fs.v;
+                case SIG_B:
+                    return fs.b;
+            }
+            DIE("");
+        case 2:
+            
+        default:
+            DIE("%d", spec->arity);
+    }
+}
+
+
+//Does this still make sense?
+union linkf linkf_get_(const char *name, enum link_prototype prototype) {
+    struct link_spec spec;
+    union linkf result;
+    key_t key;
+    strncpy(&key, name, LINK_NAME_MAX);
+    map_get(&LINKS, key, &spec);
+    switch (prototype) {
+#define CASE(P, a) case LINK_PROTO_##P: assert(spec.a); result.a = spec.a; break;
+        CASE(S, s)
+        CASE(V, v)
+        CASE(B, b)
+        CASE(SS, ss)
+        CASE(VS, vs)
+        CASE(BS, bs)
+        CASE(VV_EQ, vv_eq)
+        CASE(VV_1L, vv_1l)
+        CASE(VV_1G, vv_1g)
+        CASE(BV_EQ, BV_EQ)
+        CASE(BV_1L, bv_1l)
+        CASE(BV_1G, bv_1g)
+        CASE(BB_EQ, bb_eq)
+        CASE(BB_1L, bb_1l)
+        CASE(BB_1G, bb_1g)
+#undef CASE
+        case LINK_PROTO_0:
+        case LINK_PROTO_MA:
+        case LINK_PROTO_MF:
+        default:
+            DIE("%d", prototype);
+            break;
+    }
+    return result;
 }

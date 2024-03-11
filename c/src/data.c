@@ -15,13 +15,16 @@ void data_init(void) {
 }
 
 
-void data_get(key_t id, struct sig *sig) {
-    assert(map_get(&DATA, id, sig));
+struct sig *data_get(key_t id) {
+    return (struct sig*)map_get(&DATA, id);
 }
 
 
 void data_put(key_t id, struct sig *sig) {
-    map_put(&DATA, id, sig, 0);
+    struct sig old;
+    if (map_put(&DATA, id, sig, &old)) {
+        sig_free(&old);
+    }
 }
 
 

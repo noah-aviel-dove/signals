@@ -68,6 +68,7 @@ enum link_param_prototype {
     LINK_PROTO_M
 };
 
+
 typedef uint32_t linkf_prototype;
 
 
@@ -84,6 +85,7 @@ typedef void (*linkf_bb)(struct ctx*, struct buf*, struct buf*);
 
 
 struct linkfs {
+    linkf_0 _0;
     linkf_s s;
     linkf_v v;
     linkf_b b;
@@ -96,13 +98,16 @@ struct linkfs {
 };
 
 
+union link_name {
+    key_t key;
+    char str[sizeof(key_t) + 1];
+};
+
+
 struct link_spec {
     struct linkfs fs;
     int arity;
-    union {
-        key_t key;
-        char str[sizeof(key_t) + 1];
-    } name;
+    union link_name name;
 };
 
 

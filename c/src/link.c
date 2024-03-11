@@ -1,7 +1,6 @@
 #include "link.h"
 
-#include <assert.h>
-
+#include "common.h"
 #include "chain.h"
 #include "data.h"
 
@@ -11,8 +10,8 @@ void link_exec(struct ctx *ctx, struct link *link) {
     struct link_dispatch *dispatch = link->dispatch;
     switch(dispatch.prototype) {
         case LINK_PROTO_M:
-            assert(link->sources[0].type == LINK_SRC_C);
-            assert(link->sources[1].type == LINK_SRC_M);
+            REQ_EQ_I(link->sources[0].type, LINK_SRC_C);
+            REQ_EQ_I(link->sources[1].type, LINK_SRC_M);
             if (link->sources[1].alloc_args.type) {
                 sig_alloc(dispatch.args[0], link->sources[1].alloc_args);
             } else {
@@ -36,7 +35,7 @@ void link_exec(struct ctx *ctx, struct link *link) {
 #undef DISPATCH_1
 #undef DISPATCH_2
         default:
-            assert(0);
+            DIE("%d", dispatch.prototype);
     }
 }
 
