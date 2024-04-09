@@ -92,22 +92,74 @@ impl Server {
     }
 }
 
+
 fn read_request<R: Read>(stream: &mut R) -> Result<Request, Response> {
-    let mut reader = BufReader::new(stream);
-    let mut headers = [httparse::EMPTY_HEADER; 0];
+    let mut headers = [httparse::EMPTY_HEADER; 16];
     let mut parsing_request = httparse::Request::new(&mut headers);
-    let mut buf = String::new();
+    let mut buf = Vec::<u8>::new();
+    let mut offset = 0;
+    let mut block_size = 64;
+    loop {
+        buf.resize(buf.len() + buf_size);
+        buf_size *= 2;
+        match stream.read(&mut buf[offset..]) {
+            Err(err) => return Err(internal_error(format!("Failed to read request: {}", err))),
+            Ok(0) => return Err(bad_request("Incomplete or malformed request".to_string())),
+            Ok(read) => {
+                offset += read;
+                match parsing_request.parse(buf) {
+                    Err(err) => return Err(bad_request(format!("Failed to parse request: {}", err))),
+                    Ok(httparse::Status::Partial) => {
+                        continue;
+                    },
+                    Ok(httparse::Status::Complete(final_offset)) => {
+                        assert!(final_offset <= offset);
+                        offset = final_offset;
+                        break;
+                    },
+                }
+            }
+        }
+    }
+
+    let mut builder = http::Request::builder();
+    builder = parsing_request.headers.iter()
+        .fold(builder, |builder, header| builder.header(header.name, header.value))
+        .method(parsing_request.method.unwrap())
+        .uri(parsing_request.path.unwrap())
+        .version(match parsing_request.version.unwrap() {
+            0 => http::verison::HTTP_10,
+            1 => http::version::HTTP_11,
+            v => panic!("httparse should have reported an error for HTTP version {v}"),
+        });
+
+    let method = builder.method_ref().unwrap();
+    if let &Method::PUT | &Method::POST | &Method::PATCH = method {
+        let headers = builder.headers_ref().unwrap();
+        match headers.get(http::header::CONTENT_LENGTH) {
+            None => return Err(length_required()),
+            Some(content_length) => {
+                let content_length = content_length.to_str().unwrap();
+                match content_length.parse::<usize>() {
+                    Ok(content_length) => {
+                        let mut bytes = vec![0; content_length];
+                        match stream.read_exact(&mut bytes) {
+                            Err(err) => {return Err(internal_error(format!("Failed to read request: {}", err)))},
+                            Ok(_) => {buf = String::from_utf8(bytes).unwrap();}
+                        }
+                    }
+                    Err(_) => { return Err(bad_request(format!("Non-numerical content length: {content_length}"))) },
+                }
+            }
+        }
+    
     match reader.read_line(&mut buf) {
-        Err(err) => Err(internal_error(format!("Failed to read request: {}", err))),
         Ok(0) =>  Err(bad_request("Empty or malformed request".to_string())),
-        Ok(_) => match parsing_request.parse(buf.as_bytes()) {
-            Err(err) => Err(bad_request(format!("Failed to parse request: {}", err))),
-            Ok(httparse::Status::Partial) => Err(bad_request("Incomplete or malformed request".to_string())),
-            Ok(httparse::Status::Complete(_)) => {
+        Ok(_) => 
+
                 let mut builder = http::Request::builder()
                     // Omitting version because httparse only supports 1.0 and 1.1
-                    .method(parsing_request.method.unwrap())
-                    .uri(parsing_request.path.unwrap());
+
 
                 loop {
                     buf.clear();
@@ -123,25 +175,7 @@ fn read_request<R: Read>(stream: &mut R) -> Result<Request, Response> {
                     }
                 }
 
-                let method = builder.method_ref().unwrap();
-                if let &Method::PUT | &Method::POST | &Method::PATCH = method {
-                    let headers = builder.headers_ref().unwrap();
-                    match headers.get(http::header::CONTENT_LENGTH) {
-                        None => return Err(length_required()),
-                        Some(content_length) => {
-                            let content_length = content_length.to_str().unwrap();
-                            match content_length.parse::<usize>() {
-                                Ok(content_length) => {
-                                    let mut bytes = vec![0; content_length];
-                                    match stream.read_exact(&mut bytes) {
-                                        Err(err) => {return Err(internal_error(format!("Failed to read request: {}", err)))},
-                                        Ok(_) => {buf = String::from_utf8(bytes).unwrap();}
-                                    }
-                                }
-                                Err(_) => { return Err(bad_request(format!("Non-numerical content length: {content_length}"))) },
-                            }
-                        }
-                    }
+
                 } else {
                     buf.clear();
                 }
