@@ -19,19 +19,19 @@ pub fn read_request<R: Read>(stream: &mut R) -> Result<Request, Response> {
     let mut read = 0;
 
     match stream.read(&mut buf[..]) {
-        Err(err) => Err(errors::internal_error(
-            format!("Failed to read request head: {}", err).into_bytes(),
-        )),
-        Ok(0) => Err(errors::bad_request(b"Empty request".into())),
+        Err(err) => Err(responses::internal_error(format!(
+            "Failed to read request head: {}",
+            err
+        ))),
+        Ok(0) => Err(responses::bad_request("Empty request".into())),
         Ok(newly_read) => {
             read += newly_read;
             match parsing_request.parse(&buf) {
-                Err(err) => Err(errors::bad_request(
-                    format!("Bad request syntax: {}", err).into_bytes(),
+                Err(err) => Err(responses::bad_request(
+                    format!("Bad request syntax: {}", err),
                 )),
-                Ok(httparse::Status::Partial) => Err(errors::bad_request(
+                Ok(httparse::Status::Partial) => Err(responses::bad_request(
                     format!("Request head too large; body not found after reading {MAX_REQUEST_HEAD_SIZE} bytes")
-                    .into_bytes(),
                 )),
                 Ok(httparse::Status::Complete(body_start)) => {
                     assert!(body_start <= read);
@@ -58,9 +58,8 @@ pub fn read_request<R: Read>(stream: &mut R) -> Result<Request, Response> {
                             match content_length.parse::<usize>() {
                                 Ok(content_length) => content_length,
                                 Err(err) => {
-                                    return Err(errors::bad_request(
+                                    return Err(responses::bad_request(
                                         format!("Failed to read content length: {err}")
-                                        .into_bytes(),
                                     ))
                                 }
                             }
@@ -68,9 +67,8 @@ pub fn read_request<R: Read>(stream: &mut R) -> Result<Request, Response> {
                     };
                     buf.resize(body_start + content_length, 0);
                     if let Err(err) = stream.read_exact(&mut buf[read..]) {
-                        return Err(errors::internal_error(
+                        return Err(responses::internal_error(
                             format!("Failed to read request body: {err}")
-                                .into_bytes(),
                         ));
                     }
                     let body = buf[body_start..].into();
@@ -105,24 +103,56 @@ pub fn write_response<W: Write>(stream: &mut W, response: &mut Response) -> std:
     Ok(())
 }
 
-pub mod errors {
+pub mod responses {
 
     use http::status::StatusCode;
+    use mime::Mime;
+    use rmp_serde;
+    use serde::Serialize;
+    use serde_json;
 
     use crate::http::Response;
 
-    pub fn bad_request(body: Vec<u8>) -> Response {
-        http::response::Builder::new()
-            .status(StatusCode::BAD_REQUEST)
-            .body(body.into())
-            .unwrap()
+    pub fn json<T: Serialize>(body: &T) -> Response {
+        match serde_json::to_vec(&body) {
+            Ok(bytes) => new(StatusCode::OK, bytes, mime::APPLICATION_JSON),
+            Err(err) => internal_error(format!("Error serializing JSON response: {err}")),
+        }
+    }
+
+    pub fn msgpack<T: Serialize>(body: &T) -> Response {
+        match rmp_serde::to_vec(&body) {
+            Ok(bytes) => new(StatusCode::OK, bytes, mime::APPLICATION_MSGPACK),
+            Err(err) => internal_error(format!("Error serializing MSGPACK response: {err}")),
+        }
+    }
+
+    pub fn ok() -> Response {
+        empty(StatusCode::OK)
+    }
+
+    pub fn ok_txt(msg: String) -> Response {
+        new(StatusCode::OK, msg.into_bytes(), mime::TEXT_PLAIN_UTF_8)
+    }
+
+    pub fn created() -> Response {
+        empty(StatusCode::CREATED)
+    }
+
+    pub fn no_content() -> Response {
+        empty(StatusCode::NO_CONTENT)
+    }
+
+    pub fn bad_request(body: String) -> Response {
+        new(
+            StatusCode::BAD_REQUEST,
+            body.into_bytes(),
+            mime::TEXT_PLAIN_UTF_8,
+        )
     }
 
     pub fn not_found() -> Response {
-        http::response::Builder::new()
-            .status(StatusCode::NOT_FOUND)
-            .body(b"".into())
-            .unwrap()
+        empty(StatusCode::NOT_FOUND)
     }
 
     pub fn bad_method(allow: &[http::Method]) -> Response {
@@ -138,30 +168,60 @@ pub mod errors {
     }
 
     pub fn length_required() -> Response {
-        http::response::Builder::new()
-            .status(StatusCode::LENGTH_REQUIRED)
-            .body(b"".into())
+        empty(StatusCode::LENGTH_REQUIRED)
+    }
+
+    pub fn cant_accept(allow: &[Mime]) -> Response {
+        let builder = http::response::Builder::new();
+        allow
+            .iter()
+            .fold(builder, |builder, mime| {
+                builder.header(http::header::ACCEPT, mime.essence_str())
+            })
+            .status(StatusCode::UNSUPPORTED_MEDIA_TYPE)
+            .body("".into())
             .unwrap()
     }
 
-    pub fn internal_error(body: Vec<u8>) -> Response {
-        http::response::Builder::new()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(body)
-            .unwrap()
+    pub fn bad_entity(body: String) -> Response {
+        new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            body.into_bytes(),
+            mime::TEXT_PLAIN_UTF_8,
+        )
+    }
+
+    pub fn internal_error(body: String) -> Response {
+        new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            body.into_bytes(),
+            mime::TEXT_PLAIN_UTF_8,
+        )
     }
 
     pub fn not_implemented() -> Response {
+        empty(StatusCode::NOT_IMPLEMENTED)
+    }
+
+    pub fn empty(status: StatusCode) -> Response {
         http::response::Builder::new()
-            .status(StatusCode::NOT_IMPLEMENTED)
+            .status(status)
             .body(b"".into())
+            .unwrap()
+    }
+
+    pub fn new(status: StatusCode, body: Vec<u8>, content_type: Mime) -> Response {
+        http::response::Builder::new()
+            .status(status)
+            .header(http::header::CONTENT_TYPE, content_type.essence_str())
+            .body(body)
             .unwrap()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::http::errors::*;
+    use crate::http::responses::*;
     use crate::http::*;
 
     use http::header::CONTENT_LENGTH;

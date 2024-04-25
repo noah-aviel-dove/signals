@@ -1,11 +1,7 @@
-mod api;
-mod http;
-mod server;
-mod signal;
+use chain_forge::server::Server;
+use std::io::Result;
 
-use crate::server::Server;
-
-fn main() {
+fn main() -> std::io::Result<()> {
     let mut server = Server::new();
-    server.serve();
+    server.serve_tcp()
 }

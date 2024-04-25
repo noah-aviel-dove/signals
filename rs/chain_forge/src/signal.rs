@@ -1,13 +1,15 @@
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 pub type Scalar = f32;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct Column {
     pub data: Vec<Scalar>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct Matrix {
     pub data: Vec<Scalar>,
     pub channels: usize,
@@ -26,14 +28,22 @@ pub enum SignalKind {
 }
 
 #[repr(u8)]
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum SignalSpec {
+    S = SIGNAL_S,
+    C(usize) = SIGNAL_C,
+    M(Shape) = SIGNAL_M,
+}
+
+#[repr(u8)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum Signal {
     S(Scalar) = SIGNAL_S,
     C(Column) = SIGNAL_C,
     M(Matrix) = SIGNAL_M,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Shape {
     // Rows
     channels: usize,
@@ -61,6 +71,10 @@ impl From<SignalKind> for u8 {
 impl Signal {
     pub fn shape(&self) -> Shape {
         Shape::of(&self)
+    }
+
+    pub fn describe(&self) -> SignalSpec {
+        SignalSpec::of(&self)
     }
 
     pub fn kind(&self) -> SignalKind {
@@ -176,6 +190,26 @@ impl fmt::Display for Shape {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // Matrix notation, rows x columns
         write!(f, "{}x{}", self.channels, self.frames)
+    }
+}
+
+impl SignalSpec {
+    pub fn of(sig: &Signal) -> Self {
+        match sig {
+            Signal::S(_) => Self::S,
+            Signal::C(Column { data }) => Self::C(data.len()),
+            Signal::M(_) => Self::M(sig.shape()),
+        }
+    }
+}
+
+impl fmt::Display for SignalSpec {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::S => write!(f, "S"),
+            Self::C(channels) => write!(f, "C({})", channels),
+            Self::M(shape) => write!(f, "M({})", shape),
+        }
     }
 }
 

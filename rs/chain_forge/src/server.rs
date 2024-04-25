@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::os::unix::net::UnixListener;
 
 use log::{error, info, warn};
@@ -7,6 +8,7 @@ use crate::api::Api;
 use crate::http::{read_request, write_response};
 
 const SOCKET_PATH: &'static str = "/tmp/chainforge.sock";
+const TCP_IP_ADDRESS: &'static str = "127.0.0.1:7878";
 
 pub struct Server {
     api: Api,
@@ -17,8 +19,20 @@ impl Server {
         Self { api: Api::new() }
     }
 
-    pub fn serve(&mut self) -> std::io::Result<()> {
+    pub fn serve_unix(&mut self) -> std::io::Result<()> {
         let listener = UnixListener::bind(SOCKET_PATH)?;
+        for stream in listener.incoming() {
+            match stream {
+                Ok(stream) => self.handle_connection(stream),
+                Err(err) => error!("Unable to read connection: {err}"),
+            }
+        }
+        // Never reached
+        Ok(())
+    }
+
+    pub fn serve_tcp(&mut self) -> std::io::Result<()> {
+        let listener = TcpListener::bind(TCP_IP_ADDRESS)?;
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => self.handle_connection(stream),
