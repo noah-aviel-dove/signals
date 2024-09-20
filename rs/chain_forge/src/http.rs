@@ -232,11 +232,11 @@ mod tests {
         let mut buf = Vec::<u8>::new();
 
         {
-            let mut response = bad_request(b"Oh no! Discombobulated splines!".into());
+            let mut response = bad_request("Oh no! Discombobulated splines!".into());
             write_response(&mut buf, &mut response).unwrap();
         }
 
-        let expected = b"HTTP/1.1 400 Bad Request\r\ncontent-length: 31\r\n\r\nOh no! Discombobulated splines!".to_vec();
+        let expected = b"HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain\r\ncontent-length: 31\r\n\r\nOh no! Discombobulated splines!".to_vec();
         assert_eq!(buf, expected);
     }
 

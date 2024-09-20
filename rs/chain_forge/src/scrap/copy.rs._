@@ -1,0 +1,184 @@
+
+pub type Pulse = f32;
+
+
+struct Shape {
+    pub frames: usize,
+    pub channels: usize,
+}
+
+struct Signal {
+    data: Vec<Pulse>,
+    shape: Shape,
+}
+
+
+impl Signal {
+    
+    fn produce<U impl ParallelUnOp>(&self) -> Self {
+        Self {
+            shape: self.shape,
+            self.data.iter().map(U::produce).collect()
+        }
+    }
+
+    fn mutate<U impl ParallelUnOp>(&mut self) {
+        self.data.iter_mut().for_each(U::mutate)
+    }
+}
+
+enum Alignment {
+    SameSize,
+    Repeat1st,
+    Repeat2nd,
+    Project1st,
+    Project2nd,
+}
+
+impl Alignment {
+    fn of(a: &Shape, b: &Shape) -> Option<Self> {
+        if a.frames == b.frames {
+            if a.channels == b.channels {
+                Some(Alignment::SameSize)
+            } else if a.channels % b.channels == 0 {
+                Some(Alignment::Repeat2nd)
+            } else if b.channels % a.channels == 0 {
+                Some(Alignment::Repeat1st)
+            } else {
+                None
+            }
+        } else if a.frames == 1 {
+            if a.channels == 1 {
+                Some(Alignment::Repeat1st)
+            } else if ... {
+                Some(Alignment::Project1st)
+            } else {
+                None
+            }
+
+        } else if b.frames == 1 && b.channels == 1{
+            Some(Alignment::Repeat2nd)
+        } else {
+            None
+        }
+    }
+}
+
+fn apply_column_to_matrix(c, m) {
+    
+}
+
+struct AlignedSigs<'a> {
+    x: &'a Signal,
+    y: &'a Signal,
+    a: Alignment,
+}
+
+impl AlignedSigs {
+    fn new<B impl ParallelBinOp>(x: &'a Signal, y: &'a Signal) -> Self {
+        
+    }
+}
+
+
+
+pub trait GenOp {
+    fn produce(ctx: &Context) -> Signal;
+}
+
+
+pub trait ParallelUnOp {
+    fn produce(x: Pulse) -> Pulse;
+
+    fn mutate(x: &mut Pulse) {
+        *x = produce(*x);
+    }
+}
+
+
+pub struct Sine;
+
+impl ParallelUnOp for Sine {
+    fn produce(x: Pulse) {
+        x.sin()
+    }
+}
+
+
+pub trait ParallelBinOp {
+    fn produce(x: Pulse, y: Pulse) -> Pulse;
+
+    fn mutate(x: &mut Pulse, y: Pulse) -> Pulse {
+        *x = produce(*x, y);
+    }
+}
+
+
+pub trait SerialBinOp {
+    fn produce(x: &[Pulse], y: &[Pulse]) -> Vec<Pulse>;
+
+    // Not sure whether mutate would ever make sense
+}
+
+
+pub struct Conv;
+
+impl SerialBinOp for Conv {
+    fn produce(x: &[Pulse], y: &[Pulse]) -> Vec<Pulse> {
+        // got lost here
+    }
+} 
+
+
+pub struct Add;
+
+impl ParallelBinOp for Add {
+    fn produce(x: Pulse, y: Pulse) -> Pulse {
+        x + y
+    }
+}
+
+pub struct Mul;
+
+impl ParallelBinOp for Add {
+    fn produce(x: Pulse, y: Pulse) -> Pulse {
+        x * y
+    }
+}
+
+
+pub struct Clock;
+
+
+impl GenOp for Clock {
+    fn produce(ctx: &Context) -> Signal {
+        Matrix (
+            (ctx.offset..(ctx.offset + ctx.shape.frames)).map(Pulse::from).collect(),
+            ctx.shape.channels,
+        )
+    }
+}
+
+
+fn exec_parallel_binop<B impl ParallelBinOp> (x: &Signal, y: &Signal) -> Option<Signal> {
+    if x.channels == y.channels && x.data.len()
+}
+
+
+enum Link {
+    BinOp([SignalSource; 2]),
+}
+
+
+enum SignalSource {
+    Stack (usize),
+    Vars (String),
+}
+
+struct Chain {
+    id: i32,
+    stack: Vec<Signal>,
+    vars: HashMap<String, Signal>,
+    links: Vec<Link>,
+}
+

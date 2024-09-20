@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+mod chain;
+
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -11,15 +12,14 @@ use http::Method;
 use rmp_serde;
 use serde_json;
 
+use crate::chain::ChainSpec;
 use crate::http::responses::{
     bad_method, bad_request, cant_accept, created, json, msgpack, no_content, not_found, ok, ok_txt,
 };
 use crate::http::{Request, Response};
 use crate::Id;
 
-use crate::service::chain::spec::{ChainSpec, LinkSpec};
-use crate::service::chain::Chain;
-use crate::signal::Signal;
+use crate::api::chain::ChainApi;
 
 pub struct Api {
     chains: ChainApi,
@@ -141,10 +141,10 @@ where
 {
     if content_type == Some(mime::APPLICATION_MSGPACK) {
         rmp_serde::from_slice::<T>(&body)
-            .map_err(|err| bad_request(format!("Failed to decode JSON: {err}")))
+            .map_err(|err| bad_request(format!("Failed to decode MSGPACK: {err}")))
     } else if content_type == Some(mime::APPLICATION_JSON) {
         serde_json::from_slice::<T>(&body)
-            .map_err(|err| bad_request(format!("Failed to decode MSGPACK: {err}")))
+            .map_err(|err| bad_request(format!("Failed to decode JSON: {err}")))
     } else {
         Err(cant_accept(&[
             mime::APPLICATION_MSGPACK,
@@ -186,81 +186,14 @@ fn wrap_del(was_present: bool) -> TryResponse {
 }
 
 fn allow_get() -> TryResponse {
-    Ok(bad_method(&[Method::HEAD, Method::GET]))
+    Err(bad_method(&[Method::HEAD, Method::GET]))
 }
 
 fn allow_get_put_del() -> TryResponse {
-    Ok(bad_method(&[
+    Err(bad_method(&[
         Method::HEAD,
         Method::GET,
         Method::PUT,
         Method::DELETE,
     ]))
-}
-
-struct ChainApi {
-    mesh: HashMap<Id, Chain>,
-}
-
-impl<'a> ChainApi {
-    pub fn new() -> Self {
-        Self {
-            mesh: HashMap::<_, _>::new(),
-        }
-    }
-
-    pub fn list(&self) -> Vec<Id> {
-        self.mesh.keys().copied().collect::<Vec<_>>()
-    }
-
-    pub fn get(&self, id: Id) -> Option<ChainSpec> {
-        let chain = self.mesh.get(&id)?;
-        Some(chain.describe())
-    }
-
-    pub fn put(&mut self, id: Id, spec: ChainSpec) -> bool {
-        let chain = spec.reify();
-        self.mesh.insert(id, chain).is_some()
-    }
-
-    pub fn del(&mut self, id: Id) -> bool {
-        self.mesh.remove(&id).is_some()
-    }
-
-    pub fn get_links(&self, id: Id) -> Option<Vec<LinkSpec>> {
-        let chain = self.mesh.get(&id)?;
-        Some(chain.describe_links())
-    }
-
-    pub fn get_link(&self, id: Id, index: usize) -> Option<LinkSpec> {
-        let link: &_ = self.mesh.get(&id)?.links.get(index)?;
-        Some(link.describe())
-    }
-
-    pub fn get_vars(&'a self, id: Id) -> Option<&'a Vec<Signal>> {
-        let chain = self.mesh.get(&id)?;
-        Some(&chain.vars)
-    }
-
-    pub fn get_var(&'a self, id: Id, index: usize) -> Option<&'a Signal> {
-        let var = self.mesh.get(&id)?.vars.get(index)?;
-        Some(&var)
-    }
-
-    pub fn patch_var(
-        &mut self,
-        id: Id,
-        index: usize,
-        new_var: Signal,
-    ) -> Option<Result<(), String>> {
-        let var = self.mesh.get_mut(&id)?.vars.get_mut(index)?;
-        let old_spec = var.describe();
-        let new_spec = new_var.describe();
-        if old_spec == new_spec {
-            *var = new_var;
-            Some(Ok(()))
-        } else {
-            Some(Err(format!("Cannot patch {old_spec} with {new_spec}")))
-        }
-    }
 }

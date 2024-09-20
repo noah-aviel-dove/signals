@@ -15,6 +15,11 @@ pub struct Matrix {
     pub channels: usize,
 }
 
+fn map_into(src: &Vec<Scalar), dst: &mut Vec<Scalar>, func: fn(Scalar) -> Scalar) {
+    assert_eq(src.len(), dst.len());
+    src.iter().zip(dst.iter_mut()).for_each(|s1| *s2 = func(s1))
+}
+
 const SIGNAL_S: u8 = b's';
 const SIGNAL_C: u8 = b'c';
 const SIGNAL_M: u8 = b'm';
@@ -79,6 +84,49 @@ impl Signal {
 
     pub fn kind(&self) -> SignalKind {
         unsafe { *(self as *const Signal as *const u8 as *const SignalKind) }
+    }
+
+    // I don't think this will ever actually be used
+    pub fn map(&self, func: &impl Fn(&Scalar) -> Scalar, dest: &mut Signal) -> Signal {
+        match self {
+            Self::S(s) => Self::S(func(s)),
+            Self::C(c) => Self::C(Column {
+                data: c.data.iter().map(func).collect(),
+            }),
+            Self::M(m) => Self::M(Matrix {
+                channels: m.channels,
+                data: m.data.iter().map(func).collect(),
+            }),
+        }
+    }
+
+    pub fn map_mut(&mut self, func: &impl Fn(&Scalar) -> Scalar) {
+        match self {
+            Self::S(s) => *s = func(s),
+            Self::C(c) => c.data.iter_mut().for_each(|s| *s = func(s)),
+            Self::M(m) => m.data.iter_mut().for_each(|s| *s = func(s)),
+        }
+    }
+
+    pub fn map_into(&self, func: &impl Fn(Scalar) -> Scalar, dest: &mut Signal) {
+        match self {
+            Self::S(s1) => match dest {
+                Self::S(s2) => *s2 = func(s1),
+                _ => panic!("Expected {}, got {}", self.describe(), dest.describe()),
+            },
+            Self::C(c1) => match dest {
+                Self::C(c2) => map_into(c1.data, c2.data, func),
+                _ => panic!("Expected {}, got {}", self.describe(), dest.describe()),
+            },
+            Self::M(m1) => match dest {
+                Self::M(m2) => map_into(m1.data, m2.data, func),
+                _ => panic!("Expected {}, got {}", self.describe(), dest.describe()),
+            },
+        }
+    }
+
+    pub fn map_into_with(&self, func: &impl Fn(Scalar, Scalar) -> Scalar, other: &Signal, dest: &mut Signal) {
+        
     }
 
     pub fn from_vec(kind: &SignalKind, shape: &Shape, data: Vec<Scalar>) -> Result<Self, String> {
@@ -214,6 +262,7 @@ impl fmt::Display for SignalSpec {
 }
 
 mod serialization {
+    // May just use MsgPack instead, but this is probably still more efficient
     use crate::signal::{Scalar, Shape, Signal, SignalKind};
     use std::mem::size_of;
 
