@@ -1,0 +1,6 @@
+Look.
+
+The chain execution context can't know in advance which signals need to be mutable when
+passed to the links, and even if it could know it wouldn't be worth it to implement
+all the different required combinations. So just make every signal mutable. Don't even
+write any version of any method that permits the notion of an immutable signal.

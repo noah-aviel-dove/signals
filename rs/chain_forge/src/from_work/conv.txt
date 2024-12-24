@@ -1,0 +1,56 @@
+h = finite impulse response
+x = dry signal
+y = wet signal
+
+N = optimal FFT size given len(h) (see below)
+L = N - len(h) + 1
+
+H = FFT(h)
+for (t = 0; t < len(x) - N; t += L) {
+        
+    # len(xt) = N
+    xt = x[t..t + N]
+    
+    # len(yt) = N
+    # inconsistency here: either h or H needs to be zero-padded to length N
+    yt = IFFT(FFT(xt) * H)
+
+    # len(yt) = L
+    yt = yt[len(h)..N]
+    
+    y[t..t + L] = yt
+}
+
+
+Note that overlap-save may not be optimal at all for filters that are very short or very long
+
+Do we need to zero-pad x so that its size is a multiple of L?
+Or is it possible to set things up during the forge step
+so that the sizes line up? I don't think so. 
+
+Maybe we can zero-pad h/p instead,
+so that the derived size for L divides the size of x.
+
+We already zero-pad h.
+
+L = N - (M - 1)
+
+given N, original filter size M, and block size B, choose k such that:
+
+(N - (M + k - 1)) % B == 0
+
+def m_prime(N, M, B):
+    rem = (N - (M - 1)) % B
+
+
+Think about this is terms of nodes
+
+filter (1xM)   kernel singal (1x ...)
+      |                /
+      v               /
+FFTp2 (1xN)          /
+          \         /  
+           \       /
+            v     v  
+           conv (1xL)
+
